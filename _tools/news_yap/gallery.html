@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>news_yap Gallery</title>
+<link rel="stylesheet" href="news_yap.css">
+</head>
+<body>
+<div id="ny-stage">
+  <div id="s1" class="ny-abs" style="inset:0">
+    <div class="ny-abs" style="left:60px;right:60px;top:330px;font:600 30px Oxanium;letter-spacing:10px;color:#8a7356" id="kick">NEWS YAP · DESIGN LANGUAGE</div>
+    <div class="ny-abs" id="hl" style="left:60px;right:60px;top:420px;font:800 96px/1.12 Oxanium">India's chip push gets ₹1,27,500 crore more</div>
+  </div>
+  <div id="s2" class="ny-abs" style="inset:0">
+    <svg width="1080" height="1920" viewBox="0 0 1080 1920" class="ny-abs" style="inset:0"><g id="world"><g id="map"></g><g id="marks"></g></g><g id="tags"></g></svg>
+  </div>
+  <div id="s3" class="ny-abs" style="inset:0"></div>
+  <div id="s4" class="ny-abs" style="inset:0;display:grid;place-items:center">
+    <div id="ans" style="text-align:center"><div style="font:600 30px Oxanium;letter-spacing:10px;color:#8a7356">MY ANSWER</div>
+      <div style="display:inline-block;margin-top:24px;border:6px solid #c2402f;border-radius:26px;padding:10px 60px;font:800 200px/1 Oxanium;color:#c2402f">YES</div></div>
+  </div>
+</div>
+<script src="india.js"></script>
+<script src="news_yap.js"></script>
+<script>
+/* planned cue times for the demo (a reel gets these from cues.js) */
+window.NY_CUES_EST={hl:.5, map:4.0, sanand:5.6, tag:5.9, sweep:9.6, c1:10.2, c2:10.6, c3:11.0, c4:11.4, note:12.2, iris:14.0, end:16.5};
+const C=NY.cue, $=id=>document.getElementById(id);
+/* camera: azimuth 65, elevation 52 (line map look) */
+const AZ=65*Math.PI/180,EL=52*Math.PI/180,sA=Math.sin(AZ),cA=Math.cos(AZ),sE=Math.sin(EL),K=1.6;
+const raw=(x,y)=>[(x*sA-y*cA)*K,((x*cA+y*sA)*sE)*K], O=(()=>{const c=raw(306,334);return [540-c[0],920-c[1]]})();
+const iso=(x,y)=>{const r=raw(x,y);return [O[0]+r[0],O[1]+r[1]]};
+const floorM=`matrix(${K*sA} ${K*cA*sE} ${-K*cA} ${K*sA*sE} ${O[0]} ${O[1]})`;
+const mapG=NY.sv("g",{transform:floorM},$("map"));
+const outlines=NY_INDIA.paths.map(p=>NY.sv("path",{d:p.d,fill:"none",stroke:"#3b2a1a","stroke-width":1.1,"stroke-linejoin":"round"},mapG));
+const [sx,sy]=iso(...NY_INDIA.xy(72.38,22.99));
+const ring=NY.ring($("marks")), tag=NY.tag($("tags"),{key:"Micron",value:"₹22,500 Cr+"}), label=NY.label($("s2"));
+const cam=NY.camera([{t:0,T:[540,900],Z:1},{t:C("sanand")-.6,T:[540,900],Z:1},{t:C("sanand"),T:[sx,sy-30],Z:1.8},{t:20,T:[sx,sy-30],Z:1.8}]);
+const hl=NY.highlight($("hl")), hlTimes=hl.words.map((_,i)=>C("hl")+i*.32);
+const cards=[["12","projects",12],["6","states",6],["₹1.64 lakh Cr+","committed",null],["5","producing",5]].map(([v,k,n],i)=>
+  NY.count($("s3"),{x:[50,560,50,560][i],y:[620,620,830,830][i],value:n??v,key:k}));
+const note=NY.note($("s3"),"official PIB figures",{x:300,y:1060,size:62});
+NY.mount({end:C("end"),render:t=>{
+  // scene 1: kicker + highlighted headline, pushes out as the map arrives
+  const s1=NY.life(t,0,C("map")); $("kick").style.opacity=s1; NY.enter.rise($("hl"),s1); hl.render(t,hlTimes);
+  // scene 2: line map draws on, camera glides, ring + label + tag land on "Sanand"
+  $("s2").style.opacity=t<C("map")?0:1;
+  outlines.forEach((p,i)=>NY.tx.draw(p,NY.e.out(NY.p(t,C("map")+i*.012,C("map")+.6+i*.012))));
+  const c=cam(t); NY.applyCam($("world"),c);
+  const [rx,ry]=[sx,sy]; ring.render(t,C("sanand"),rx,ry);
+  label.render(t,C("sanand"),C("sweep"),"SANAND","GUJARAT");
+  const [bx,by]=NY.toScreen(c,sx,sy-14); tag.render(t,C("tag"),C("sweep"),bx,by);
+  // transition: ink line sweep reveals scene 3
+  const u=NY.tx.sweep($("ny-stage"),t,C("sweep"));
+  $("s3").style.display=t<C("sweep")?"none":"block"; NY.tx.reveal($("s3"),u);
+  $("s2").style.clipPath=`inset(0 0 0 ${u*100}%)`;
+  cards.forEach((cd,i)=>cd.render(t,C("c"+(i+1)),C("iris")));
+  note.render(t,C("note"),C("iris"));
+  // transition: iris opens on the answer
+  $("s4").style.display=t<C("iris")?"none":"grid"; NY.tx.iris($("s4"),NY.e.inOut(NY.p(t,C("iris"),C("iris")+NY.dur.scene)));
+  $("s4").style.background="#efe3c8"; NY.enter.scale($("ans"),NY.e.out(NY.p(t,C("iris")+.2,C("iris")+.2+NY.dur.enter)));
+}});
+</script>
+</body>
+</html>

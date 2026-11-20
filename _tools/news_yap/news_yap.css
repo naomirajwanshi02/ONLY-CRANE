@@ -1,0 +1,44 @@
+/* news_yap design language: tokens + base components. See DESIGN.md. */
+@font-face{font-family:"Oxanium";font-weight:500;font-display:block;src:url("fonts/oxanium/Oxanium-Medium.ttf")}
+@font-face{font-family:"Oxanium";font-weight:600;font-display:block;src:url("fonts/oxanium/Oxanium-SemiBold.ttf")}
+@font-face{font-family:"Oxanium";font-weight:700;font-display:block;src:url("fonts/oxanium/Oxanium-Bold.ttf")}
+@font-face{font-family:"Oxanium";font-weight:800;font-display:block;src:url("fonts/oxanium/Oxanium-ExtraBold.ttf")}
+@font-face{font-family:"Samble";font-display:block;src:url("fonts/samble/samble.otf")}
+:root{--ny-bg:#efe3c8;--ny-paper:#fbf3e2;--ny-ink:#2a1d10;--ny-ink2:#3b2a1a;--ny-muted:#8a7356;--ny-line:#c4ae86;--ny-hi:#f0a868;--ny-accent:#b5541c;--ny-pop:#c2402f}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:#d8c8a6;overflow:hidden}
+#ny-fit{position:fixed;inset:0}
+#ny-stage{position:absolute;left:50%;top:50%;width:1080px;height:1920px;background:var(--ny-bg);overflow:hidden;font-family:"Oxanium",sans-serif;color:var(--ny-ink)}
+#ny-stage::after{content:"";position:absolute;inset:0;pointer-events:none;background:radial-gradient(120% 80% at 50% 45%,#0000 55%,#7a5a2a22 100%);z-index:80}
+#ny-stage svg text{font-family:"Oxanium",sans-serif}
+.ny-abs{position:absolute}
+.ny-safe{position:absolute;left:0;right:0;background:repeating-linear-gradient(45deg,#c2402f22 0 12px,#0000 12px 24px);z-index:99;display:none}
+.ny-show-safe .ny-safe{display:block}
+/* corner label */
+.ny-label{position:absolute;left:0;right:0;text-align:center;line-height:1;z-index:20}
+.ny-label .box{position:relative;display:inline-block;padding:26px 48px 24px}
+.ny-label .c{position:absolute;width:var(--d,0px);height:var(--d,0px);border-color:var(--ny-ink2);border-style:solid;border-width:0}
+.ny-label .c.tl{left:0;top:0;border-left-width:3px;border-top-width:3px}
+.ny-label .c.br{right:0;bottom:0;border-right-width:3px;border-bottom-width:3px}
+.ny-label .c.tr{right:0;top:0;border-right-width:3px;border-top-width:3px}
+.ny-label .c.bl{left:0;bottom:0;border-left-width:3px;border-bottom-width:3px}
+/* soft paper underglow so labels never cross map lines (colours unchanged) */
+.ny-label .m,.ny-label .s,.ny-note{text-shadow:0 0 6px #fbf3e2,0 0 12px #fbf3e2,0 0 20px #fbf3e2,0 0 28px #efe3c8}
+.ny-label .m{font-weight:700;font-size:88px;letter-spacing:1px}
+.ny-label .s{font-weight:600;font-size:30px;letter-spacing:10px;color:var(--ny-muted);margin-top:14px}
+/* count card */
+.ny-count{position:absolute;width:470px;height:170px;background:var(--ny-paper);border:3px solid var(--ny-ink2);border-radius:22px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.ny-count .v{font-size:76px;font-weight:800;color:var(--ny-accent);line-height:1}
+.ny-count .v.s{font-size:50px}
+.ny-count .k{font-size:24px;font-weight:600;letter-spacing:6px;color:var(--ny-muted);margin-top:12px}
+/* highlighter words */
+.ny-w{position:relative;display:inline-block;white-space:nowrap;z-index:0}
+.ny-w::before{content:"";position:absolute;left:-6px;right:-6px;top:16%;bottom:4%;background:var(--ny-hi);z-index:-1;border-radius:5px;transform:scaleX(var(--u,0));transform-origin:left}
+/* note */
+.ny-note{position:absolute;font-family:"Samble",cursive;color:var(--ny-ink);white-space:nowrap}
+/* transitions */
+.ny-sweep{position:absolute;top:0;bottom:0;width:4px;background:var(--ny-ink2);z-index:90;display:none}
+/* hidden controls */
+#ny-ctl{opacity:0;transition:opacity .2s;position:fixed;left:0;right:0;bottom:0;height:44px;display:flex;gap:10px;align-items:center;padding:0 12px;background:#2a1d10;color:#efe3c8;font:13px system-ui;z-index:100}
+#ny-ctl:hover,#ny-ctl:focus-within{opacity:.95}
+#ny-ctl input[type=range]{flex:1}

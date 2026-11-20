@@ -1,0 +1,650 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Paper Crane</title>
+<link rel="stylesheet" href="../_tools/news_yap/news_yap.css">
+<style>
+.cr-cap{position:absolute;left:72px;right:72px;top:318px;text-align:center;z-index:30;line-height:1}
+.cr-cap .k{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:28px;letter-spacing:.04em;color:#8f7a5e}
+.cr-cap .m{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-weight:600;font-size:54px;line-height:1.24;margin-top:20px;color:#2b1e13;letter-spacing:-.01em}
+.cr-note{position:absolute;left:72px;right:72px;top:1400px;text-align:center;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:38px;color:#5b4630;z-index:30;
+  text-shadow:0 0 6px #f6eddb,0 0 14px #ecdfc6}
+#ny-stage{background:#ecdfc6}
+#ny-stage{cursor:pointer}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+</head><body>
+<div id="ny-stage"></div>
+<script src="../_tools/news_yap/news_yap.js"></script>
+<script>
+/* Paper crane guide, one-off, text only (no voice, no branding).
+   A real fold engine: the paper is a set of pieces (polygons in crease-pattern coords, CP square [-1,1]^2),
+   each with a rigid 3D transform M. Folds split pieces along a line and rotate the moving ones in 3D.
+   The collapse and the petal fold are solved kinematically; reverse folds swing + twist to an exact reflection. */
+const { lerp, sv, el, clamp } = NY;
+const PI = Math.PI, SQ2 = Math.SQRT2, EPS = 1e-7;
+const io = NY.e.inOut, eo = NY.e.out;
+const pr = (t, a, b) => clamp((t - a) / (b - a));
+
+/* ---------- linear algebra ---------- */
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]], sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const mul = (a, k) => [a[0] * k, a[1] * k, a[2] * k], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const nrm = a => { const l = Math.hypot(a[0], a[1], a[2]); return [a[0] / l, a[1] / l, a[2] / l]; };
+const mm = (A, B) => { const C = new Array(9); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) C[i * 3 + j] = A[i * 3] * B[j] + A[i * 3 + 1] * B[3 + j] + A[i * 3 + 2] * B[6 + j]; return C; };
+const mv = (A, v) => [A[0] * v[0] + A[1] * v[1] + A[2] * v[2], A[3] * v[0] + A[4] * v[1] + A[5] * v[2], A[6] * v[0] + A[7] * v[1] + A[8] * v[2]];
+const ID = { R: [1, 0, 0, 0, 1, 0, 0, 0, 1], t: [0, 0, 0] };
+const comp = (A, B) => ({ R: mm(A.R, B.R), t: add(mv(A.R, B.t), A.t) });
+const app = (M, q) => add(mv(M.R, q), M.t);
+const rotL = (P, D, a) => { // rotation by a about the line through P with unit direction D
+  const [x, y, z] = D, c = Math.cos(a), s = Math.sin(a), C = 1 - c;
+  const R = [c + x * x * C, x * y * C - z * s, x * z * C + y * s, y * x * C + z * s, c + y * y * C, y * z * C - x * s, z * x * C - y * s, z * y * C + x * s, c + z * z * C];
+  return { R, t: sub(P, mv(R, P)) };
+};
+const frameOf = (a, b, c) => { const e1 = nrm(sub(b, a)); let w = sub(c, a); w = sub(w, mul(e1, dot(w, e1))); const e2 = nrm(w); return [e1, e2, cross(e1, e2)]; };
+const rigid3 = (s, w) => { // rigid motion taking points s[0..2] to w[0..2]
+  const Fs = frameOf(...s), Fw = frameOf(...w), R = new Array(9);
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) { let v = 0; for (let k = 0; k < 3; k++) v += Fw[k][i] * Fs[k][j]; R[i * 3 + j] = v; }
+  return { R, t: sub(w[0], mv(R, s[0])) };
+};
+const axisAngle = R => { const ang = Math.acos(clamp((R[0] + R[4] + R[8] - 1) / 2, -1, 1)); const s = 2 * Math.sin(ang);
+  return { ang, axis: nrm([(R[7] - R[5]) / s, (R[2] - R[6]) / s, (R[3] - R[1]) / s]) }; };
+const sameM = (A, B) => { for (let i = 0; i < 9; i++) if (Math.abs(A.R[i] - B.R[i]) > 1e-5) return false; for (let i = 0; i < 3; i++) if (Math.abs(A.t[i] - B.t[i]) > 1e-5) return false; return true; };
+
+/* ---------- 2D helpers ---------- */
+const n2 = v => { const l = Math.hypot(v[0], v[1]); return [v[0] / l, v[1] / l]; };
+const area = P => { let s = 0; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length]; s += a[0] * b[1] - b[0] * a[1]; } return s / 2; };
+const cent = P => { let x = 0, y = 0; P.forEach(q => { x += q[0]; y += q[1]; }); return [x / P.length, y / P.length]; };
+const inside = (P, pt) => { let sg = 0; for (let i = 0; i < P.length; i++) { const a = P[i], b = P[(i + 1) % P.length];
+  const c = (b[0] - a[0]) * (pt[1] - a[1]) - (b[1] - a[1]) * (pt[0] - a[0]); if (Math.abs(c) < 1e-9) continue;
+  const s = c > 0 ? 1 : -1; if (!sg) sg = s; else if (s !== sg) return false; } return true; };
+const sideFn = (P, D) => q => D[0] * (q[1] - P[1]) - D[1] * (q[0] - P[0]);
+const dedupe = P => P.filter((q, i) => { const r = P[(i + 1) % P.length]; return Math.hypot(q[0] - r[0], q[1] - r[1]) > 1e-9; });
+const clipSide = (cp, s, pos) => { const out = [], n = cp.length;
+  for (let i = 0; i < n; i++) { const a = cp[i], b = cp[(i + 1) % n], sa = pos ? s[i] : -s[i], sb = pos ? s[(i + 1) % n] : -s[(i + 1) % n];
+    if (sa >= -EPS) out.push(a);
+    if ((sa > EPS && sb < -EPS) || (sa < -EPS && sb > EPS)) { const k = sa / (sa - sb); out.push([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]); } }
+  return dedupe(out); };
+
+/* ---------- pieces ---------- */
+let NID = 0;
+const mk = (cp, M, L, tag) => ({ id: NID++, cp, M, L, tag: { ...tag } });
+const W3 = (pc, M = pc.M) => pc.cp.map(q => app(M, [q[0], q[1], 0]));
+const W2 = pc => W3(pc).map(p => [p[0], p[1]]);
+const clone = S => S.map(pc => ({ ...pc, tag: { ...pc.tag } }));
+const rankOf = (S, W, pc, c) => { let r = 0; S.forEach((q, i) => { if (q !== pc && q.L > pc.L && inside(W[i], c)) r++; }); return r; };
+const topL = S => Math.max(...S.map(p => p.L)), botL = S => Math.min(...S.map(p => p.L));
+const meanC = (S, ids, Mf) => { let a = [0, 0, 0], n = 0; S.forEach(pc => { if (!ids.has(pc.id)) return; const w = W3(pc, Mf ? Mf(pc) : pc.M); w.forEach(p => { a = add(a, p); n++; }); }); return mul(a, 1 / n); };
+
+/* split S along world line (P,D); returns {S2, mov:Set} for pieces on the side of ref chosen by sel */
+function splitSel(S, P, D, ref, sel) {
+  const idMin = NID;
+  const sd = sideFn(P, D), side = sd(ref) > 0 ? 1 : -1, W = S.map(W2);
+  const out = [], mov = new Set();
+  S.forEach((pc, i) => {
+    const s = W[i].map(q => sd(q) * side), mx = Math.max(...s), mn = Math.min(...s);
+    if (mx <= 1e-6) { out.push(pc); return; }
+    const straddle = mn < -1e-6, mcp = straddle ? clipSide(pc.cp, s, true) : pc.cp;
+    if (Math.abs(area(mcp)) < 1e-6) { out.push(pc); return; }
+    const c = cent(mcp.map(q => { const w = app(pc.M, [q[0], q[1], 0]); return [w[0], w[1]]; }));
+    if (!sel({ rank: rankOf(S, W, pc, c), c }, pc)) { out.push(pc); return; }
+    if (!straddle) { out.push(pc); mov.add(pc.id); return; }
+    const scp = clipSide(pc.cp, s, false);
+    const a = mk(mcp, pc.M, pc.L, pc.tag); out.push(a); mov.add(a.id);
+    if (Math.abs(area(scp)) > 1e-6) out.push(mk(scp, pc.M, pc.L, pc.tag));
+  });
+  return { S2: out, mov, side, idMin };
+}
+
+/* ---------- ops: each gives pre (pieces during the op), end state, draw(u) -> [{pc, M, key}] ---------- */
+function opFold(S, { A, B, ref, sel = () => true, mountain = false, tag = null }) {
+  const D = n2([B[0] - A[0], B[1] - A[1]]);
+  const { S2: pre, mov, side, idMin } = splitSel(S, A, D, ref, sel);
+  const sign = side * (mountain ? -1 : 1), P3 = [A[0], A[1], 0], D3 = [D[0], D[1], 0];
+  const Rend = rotL(P3, D3, sign * PI);
+  const moving = pre.filter(p => mov.has(p.id)), mxL = Math.max(...moving.map(p => p.L)), mnL = Math.min(...moving.map(p => p.L));
+  const others = pre.filter(p => !mov.has(p.id)), tL = others.length ? topL(others) : 0, bL = others.length ? botL(others) : 0;
+  const oldL = new Map(moving.map(p => [p.id, p.L]));
+  const end = pre.map(pc => !mov.has(pc.id) ? pc : { ...pc, M: comp(Rend, pc.M), L: mountain ? bL - 1 - (pc.L - mnL) : tL + 1 + (mxL - pc.L), tag: tag ? { ...pc.tag, ...tag } : pc.tag });
+  const big = mountain ? -1e6 : 1e6;
+  return {
+    pre, end, mov, idMin, fold: { P3, D3, sign, oldM: new Map(moving.map(p => [p.id, p.M])), oldL }, mountain,
+    line: [A, B], arrow: [meanC(pre, mov), meanC(end, mov)],
+    draw(u) { const a = sign * PI * io(u), R = rotL(P3, D3, a), half = Math.abs(a) > PI / 2;
+      return pre.map(pc => mov.has(pc.id) ? { pc, M: comp(R, pc.M), key: big + (half ? -pc.L : pc.L) } : { pc, M: pc.M, key: pc.L }); },
+  };
+}
+function opUnfold(S, f) { // reverse a fold op f (its moving pieces must still exist unsplit)
+  const { P3, D3, sign, oldM, oldL } = f.fold, mov = new Set([...oldM.keys()]);
+  S.forEach(pc => { if (mov.has(pc.id)) return; });
+  const end = S.map(pc => mov.has(pc.id) ? { ...pc, M: oldM.get(pc.id), L: oldL.get(pc.id) } : pc);
+  return {
+    pre: S, end, mov, line: f.line, arrow: [meanC(S, mov), meanC(end, mov)],
+    draw(u) { const a = -sign * PI * io(u), R = rotL(P3, D3, a), half = Math.abs(a) > PI / 2;
+      return S.map(pc => mov.has(pc.id) ? { pc, M: comp(R, pc.M), key: 1e6 + (half ? -pc.L : pc.L) } : { pc, M: pc.M, key: pc.L }); },
+  };
+}
+function opFlip(S) {
+  const Rend = rotL([0, 0, 0], [0, 1, 0], PI);
+  return { pre: S, end: S.map(pc => ({ ...pc, M: comp(Rend, pc.M), L: -pc.L })), flip: true,
+    draw(u) { const a = PI * io(u), R = rotL([0, 0, 0], [0, 1, 0], a); this._ang = a; return S.map(pc => ({ pc, M: comp(R, pc.M), key: a > PI / 2 ? -pc.L : pc.L })); } };
+}
+function opHold(S) { return { pre: S, end: S, draw: () => S.map(pc => ({ pc, M: pc.M, key: pc.L })) }; }
+
+/* square base collapse from 8 creased sectors (white side up, centre at origin):
+   A) corners rise (4-fold symmetric, single-vertex kinematics), B) fins pair up, C) lay the base down. */
+function opCollapse(S) {
+  const deg = PI / 180, snap = a => (Math.round(a / (PI / 2)) * 90 + 360) % 360;
+  const secs = S.map(pc => {
+    const m = pc.cp.find(q => Math.abs(Math.abs(q[0]) + Math.abs(q[1]) - 1) < 1e-6 && (Math.abs(q[0]) < 1e-6 || Math.abs(q[1]) < 1e-6));
+    const d = pc.cp.find(q => Math.abs(Math.abs(q[0]) - 1) < 1e-6 && Math.abs(Math.abs(q[1]) - 1) < 1e-6);
+    const wm = app(pc.M, [m[0], m[1], 0]), wd = app(pc.M, [d[0], d[1], 0]);
+    const azm = snap(Math.atan2(wm[1], wm[0])), azd = (Math.round((Math.atan2(wd[1], wd[0]) / deg - 45) / 90) * 90 + 45 + 360) % 360;
+    const tgt = { 0: -45, 90: 135, 180: 135, 270: 315 }[azm];
+    // front = the flat quadrant bulging to azimuth 45; B squares it to +Y, C lays the base down toward you
+    const L = azd === 45 ? 3 : azd === 225 ? 0 : (azd === 135 ? (azm === 90 ? 2 : 1) : (azm === 0 ? 2 : 1));
+    return { pc, m, d, azm: azm * deg, azd: azd * deg, tgt: tgt * deg, L };
+  });
+  const c = Math.SQRT1_2;
+  const pose = (uA, uB, uC, uD = 0) => {
+    const al = 90 * deg * uA, A = Math.cos(al) * c, Bv = Math.sin(al), R = Math.hypot(A, Bv), de = Math.atan2(Bv, A);
+    const be = uB > 0 ? 45 * deg : de - Math.acos(clamp(c / R, -1, 1));
+    // B: square up to the camera; C: lay it down toward you about the centre point (open end down), then centre it
+    const lay = comp({ R: ID.R, t: [0, SQ2 / 2 * uC, 0] }, comp(rotL([0, 0, 0], [1, 0, 0], PI / 2 * uC), rotL([0, 0, 0], [0, 0, 1], PI / 4 * uB)));
+    return secs.map(s => {
+      const azm = lerp(s.azm, s.tgt, uB);
+      const dm = [Math.cos(azm) * Math.cos(be), Math.sin(azm) * Math.cos(be), Math.sin(be)];
+      const dd = [Math.cos(s.azd) * Math.cos(al), Math.sin(s.azd) * Math.cos(al), Math.sin(al)];
+      const M = rigid3([[0, 0, 0], [s.m[0], s.m[1], 0], [s.d[0], s.d[1], 0]], [[0, 0, 0], dm, mul(dd, SQ2)]);
+      return comp(lay, M);
+    });
+  };
+  const endMs = pose(1, 1, 1);
+  const end = secs.map((s, i) => ({ ...s.pc, M: endMs[i], L: s.L, tag: { side: s.L >= 2 ? "F" : "B" } }));
+  const pre = secs.map(s => ({ ...s.pc, L: s.L, tag: { side: s.L >= 2 ? "F" : "B" } }));
+  return {
+    pre, end, collapse: true,
+    creases: [[[-1, -1], [1, 1], 1], [[1, -1], [-1, 1], 1], [[-1, 0], [1, 0], 0], [[0, -1], [0, 1], 0]],
+    rings: [{ pts: [[-1, -1], [1, -1], [1, 1], [-1, 1]], u0: -1, u1: 0.06 }],
+    draw(u, cam) {
+      const uA = io(pr(u, 0, 0.4)), uB = io(pr(u, 0.44, 0.68)), uC = io(pr(u, 0.74, 1));
+      const Ms = pose(uA, uB, uC), w = viewVec(cam);
+      if (uC > 0 || uB > 0.4) { // nearly flat: stack order, reversed when the stack faces away
+        const nF = mv(Ms[secs.findIndex(s => s.L === 3)].R, [0, 0, 1]), f = dot(nF, w) > 0 ? 1 : -1;
+        return secs.map((s, i) => ({ pc: pre[i], M: Ms[i], key: f * s.L }));
+      }
+      return secs.map((s, i) => { const ctr = W3(pre[i], Ms[i]).reduce((a, p) => add(a, p), [0, 0, 0]); return { pc: pre[i], M: Ms[i], key: dot(mul(ctr, 1 / 3), w) }; });
+    },
+  };
+}
+
+/* petal fold of the front layers of a square base: T0 lifts about the K line, T1/T2 follow (degree-4 vertex at K1, K2) */
+function opPetal(S, { K1, K2, C, tagN }) {
+  const W = S.map(W2), yK = K1[1];
+  const kl = sideFn(C, n2([K1[0] - C[0], K1[1] - C[1]])), kr = sideFn(C, n2([K2[0] - C[0], K2[1] - C[1]]));
+  const outL = q => Math.sign(kl(q)) === Math.sign(kl([-5, yK])), outR = q => Math.sign(kr(q)) === Math.sign(kr([5, yK]));
+  const grp = new Map();
+  S.forEach((pc, i) => { const c = cent(W[i]); if (c[1] > yK - 1e-6) return; const r = rankOf(S, W, pc, c);
+    if (outL(c)) { if (r === 0) grp.set(pc.id, "T1L"); else if (r === 1) grp.set(pc.id, "T2L"); }
+    else if (outR(c)) { if (r === 0) grp.set(pc.id, "T1R"); else if (r === 1) grp.set(pc.id, "T2R"); }
+    else if (r === 0) grp.set(pc.id, "T0"); });
+  const P = p => [p[0], p[1], 0], k1 = P(K1), k2 = P(K2), c0 = P(C);
+  const M1 = [-SQ2 / 2 * 1, 0, 0], M2 = [SQ2 / 2, 0, 0]; // side corners (diamond centred at origin)
+  const m1 = [K1[0] - (0 - K1[0]) * 0 + (-SQ2 / 2 - K1[0]) * 0, 0, 0]; // unused
+  const lift = (A, D, ref) => (sideFn(A, D)(ref) > 0 ? 1 : -1);
+  const DK = n2([K2[0] - K1[0], K2[1] - K1[1]]), s0 = lift(K1, DK, C);
+  const d2L = n2([C[0] - K1[0], C[1] - K1[1]]), d2R = n2([C[0] - K2[0], C[1] - K2[1]]);
+  const sL = lift(K1, d2L, [M1[0], M1[1]]), sR = lift(K2, d2R, [M2[0], M2[1]]);
+  const eL = Math.hypot(M1[0] - C[0], M1[1] - C[1]);
+  const solve = (k, d, sgn, m, cphi) => { // psi such that |m(psi) - C(phi)| = eL
+    const f = ps => Math.hypot(...sub(app(rotL(k, [d[0], d[1], 0], sgn * ps), m), cphi)) - eL;
+    let prev = f(1e-4), best = 0, bv = 1e9; const N = 240;
+    for (let i = 1; i <= N; i++) { const ps = PI * i / N, v = f(ps); if (Math.abs(v) < bv) { bv = Math.abs(v); best = ps; }
+      if ((prev < 0) !== (v < 0)) { let a = PI * (i - 1) / N, b = ps, fa = prev; for (let j = 0; j < 40; j++) { const mid = (a + b) / 2, fm = f(mid); if ((fa < 0) !== (fm < 0)) b = mid; else { a = mid; fa = fm; } } return (a + b) / 2; }
+      prev = v; }
+    return best; };
+  const motions = phi => {
+    const R0 = rotL(k1, [DK[0], DK[1], 0], s0 * phi), cphi = app(R0, c0);
+    if (phi < 1e-5) return { T0: R0, T1L: ID, T1R: ID, T2L: ID, T2R: ID };
+    const pL = solve(k1, d2L, sL, M1, cphi), pR = solve(k2, d2R, sR, M2, cphi);
+    const R2L = rotL(k1, [d2L[0], d2L[1], 0], sL * pL), R2R = rotL(k2, [d2R[0], d2R[1], 0], sR * pR);
+    const m1 = app(R2L, M1), m2 = app(R2R, M2);
+    return { T0: R0, T2L: R2L, T2R: R2R, T1L: rigid3([k1, M1, c0], [k1, m1, cphi]), T1R: rigid3([k2, M2, c0], [k2, m2, cphi]) };
+  };
+  const tl = topL(S), mvE = motions(PI);
+  const phiOf = u => u < 0.4 ? 0.42 * PI * io(u / 0.4) : u < 0.5 ? 0.42 * PI : u < 0.88 ? PI * lerp(0.42, 1, io((u - 0.5) / 0.38)) : PI;
+  const end = S.map(pc => { const g = grp.get(pc.id); if (!g) return pc;
+    const base = g[1] === "2" ? 1 : g === "T0" ? 2 : 3;
+    return { ...pc, M: comp(mvE[g], pc.M), L: tl + base + pc.L * 1e-3, tag: g[1] === "2" ? pc.tag : { ...pc.tag, petal: tagN } }; });
+  const ids = new Set(grp.keys());
+  return {
+    pre: S, end, mov: ids, line: [[K1[0] - 0.25, yK], [K2[0] + 0.25, yK]], arrow: [c0, [0, yK + 1, 0]],
+    rings: [{ pts: [C], u0: -1, u1: 0.36 }, { pts: [M1, M2], u0: 0.38, u1: 0.7, track: u => { const ms = motions(phiOf(u)); return [app(ms.T2L, M1), app(ms.T2R, M2)]; } }],
+    draw(u) { const ms = motions(phiOf(u));
+      return S.map(pc => { const g = grp.get(pc.id); if (!g) return { pc, M: pc.M, key: pc.L };
+        const base = g[1] === "2" ? 1e6 : g === "T0" ? 2e6 : 3e6; return { pc, M: comp(ms[g], pc.M), key: base + pc.L }; }); },
+  };
+}
+
+/* inside reverse fold: pieces in sel, beyond line through P (dir dl) on the tip side, swing in-plane by 2b while twisting
+   pi about their own axis a -> lands exactly on the reflection across the line, placed between layers at Lmid */
+function opReverse(S, { sel, P, axisDir, outDir, tip, Lmid, tag, spine, spineRef, top = "F" }) {
+  const ang = v => Math.atan2(v[1], v[0]);
+  let lineAng = (ang(axisDir) + ang(outDir)) / 2;
+  let b = lineAng - ang(axisDir); while (b > PI / 2) b -= PI; while (b <= -PI / 2) b += PI;
+  // choose swing direction that goes outward (the reflection is the same either way)
+  const dl = [Math.cos(ang(axisDir) + b), Math.sin(ang(axisDir) + b)];
+  const { S2: pre, mov, idMin } = splitSel(S, P, dl, tip, sel);
+  const P3 = [P[0], P[1], 0], a3 = [axisDir[0], axisDir[1], 0];
+  const G = u => comp(rotL(P3, [0, 0, 1], 2 * b * u), rotL(P3, a3, PI * u));
+  const moving = pre.filter(p => mov.has(p.id)), mnL = Math.min(...moving.map(p => p.L)), mxL = Math.max(...moving.map(p => p.L));
+  const sc = L => Lmid + 0.3 * ((L - mnL) / Math.max(1e-9, mxL - mnL) - 0.5) * 1e-2;
+  const Ge = G(1);
+  const end = pre.map(pc => mov.has(pc.id) ? { ...pc, M: comp(Ge, pc.M), L: Lmid - (sc(pc.L) - Lmid), tag: { ...pc.tag, ...tag } } : pc);
+  // the flap's front and back layers spread apart about its spine while the point slides up between them
+  const spP = [spine.P[0], spine.P[1], 0], spD = [...n2(spine.D), 0], sLift = sideFn(spine.P, n2(spine.D))(spineRef) > 0 ? 1 : -1;
+  const stub = new Set(pre.filter(pc => !mov.has(pc.id) && sel({ c: cent(W2(pc)), rank: 0 }, pc)).map(pc => pc.id));
+  const OPEN = 0.32;
+  const spread = (pc, a) => rotL(spP, spD, (pc.tag.side === top ? 1 : -1) * sLift * a);
+  return {
+    pre, end, mov, idMin, line: [[P[0] - dl[0] * 0.45, P[1] - dl[1] * 0.45], [P[0] + dl[0] * 0.45, P[1] + dl[1] * 0.45]],
+    rings: [{ pts: [tip], u0: -1, u1: 0.3 }], arrow: [meanC(pre, mov), meanC(end, mov)],
+    draw(u) { const vo = io(pr(u, 0, 0.22)), vs = io(pr(u, 0.22, 0.78)), vc = io(pr(u, 0.8, 1)), g = G(vs), half = vs > 0.5;
+      const aStub = OPEN * vo * (1 - vc), aMov = OPEN * vo * (1 - vs);
+      return pre.map(pc => mov.has(pc.id) ? { pc, M: comp(g, comp(spread(pc, aMov), pc.M)), key: half ? Lmid - (sc(pc.L) - Lmid) : sc(pc.L) }
+        : stub.has(pc.id) ? { pc, M: comp(spread(pc, aStub), pc.M), key: pc.L } : { pc, M: pc.M, key: pc.L }); },
+  };
+}
+
+/* finale: wings open to the sides, the crane stands up, camera swings to a three-quarter view */
+function viewVec(c) { return [-Math.cos(c.E) * Math.sin(c.az), -Math.cos(c.E) * Math.cos(c.az), Math.sin(c.E)]; }
+/* ---------- extra ops for the diagram sequence ---------- */
+// several folds opened together (no 3-2-1 unfolding)
+function opUnfoldMany(S, fs, win) {
+  const g = new Map(), wv = new Map(); fs.forEach((f, i) => { wv.set(f, win ? win[i] : [0, 1]); f.fold.oldM.forEach((m, id) => g.set(id, f)); });
+  const end = S.map(pc => { const f = g.get(pc.id); return f ? { ...pc, M: f.fold.oldM.get(pc.id), L: f.fold.oldL.get(pc.id) } : pc; });
+  const mov = new Set(g.keys());
+  return { pre: S, end, mov, arrow: [meanC(S, mov), meanC(end, mov)],
+    draw(u) { return S.map(pc => { const f = g.get(pc.id); if (!f) return { pc, M: pc.M, key: pc.L };
+      const w = wv.get(f); return { pc, M: comp(rotL(f.fold.P3, f.fold.D3, -f.fold.sign * PI * io(pr(u, w[0], w[1]))), pc.M), key: 1e6 + pc.L }; }); } };
+}
+// turn the model on the table about a point
+function opTurn(S, c, ang) {
+  const R = a => rotL([c[0], c[1], 0], [0, 0, 1], a);
+  return { pre: S, end: S.map(pc => ({ ...pc, M: comp(R(ang), pc.M) })), turn: true,
+    draw(u) { const r = R(ang * io(u)); return S.map(pc => ({ pc, M: comp(r, pc.M), key: pc.L })); } };
+}
+// rotate groups of pieces in the paper plane about a pivot each (push in: the two points part)
+function opSpread(S, groups) {
+  const gOf = pc => groups.find(g => g.sel(pc, cent(W2(pc))));
+  const map = new Map(S.map(pc => [pc.id, gOf(pc)]));
+  const R = (g, a) => rotL([g.pivot[0], g.pivot[1], 0], [0, 0, 1], g.ang * a);
+  return { pre: S, end: S.map(pc => { const g = map.get(pc.id); return g ? { ...pc, M: comp(R(g, 1), pc.M) } : pc; }),
+    rings: [{ pts: [groups[0].pivot], u0: -1, u1: 0.5 }],
+    draw(u) { return S.map(pc => { const g = map.get(pc.id); return { pc, M: g ? comp(R(g, io(u)), pc.M) : pc.M, key: pc.L }; }); } };
+}
+// lift a flap a little about a line and press it back (8B: press both sides flat)
+function opPress(S, groups) {
+  const map = new Map(); groups.forEach(g => S.forEach(pc => { if (g.sel(pc)) map.set(pc.id, g); }));
+  return { pre: S, end: S,
+    draw(u) { const a = Math.sin(PI * io(u)); return S.map(pc => { const g = map.get(pc.id);
+      return { pc, M: g ? comp(rotL(g.P3, g.D3, g.ang * a), pc.M) : pc.M, key: g ? 1e6 + pc.L : pc.L }; }); } };
+}
+// show a finished op state through a pose (head fold on the standing crane)
+const posed = (op, pose) => ({ ...op, draw: (u, cam) => op.draw(u, cam).map(it => ({ ...it, M: pose(it.pc, it.M) })), posedOp: true });
+
+/* finale: wings swing out sideways, the crane stands up */
+function makePose(S, { K1, K2, wings }) {
+  const D3 = [...n2([K2[0] - K1[0], K2[1] - K1[1]]), 0], P3 = [K1[0], K1[1], 0];
+  return u => { const st = rotL([0, K1[1], 0], [1, 0, 0], PI / 2 * io(pr(u, 0.3, 1))), wu = io(pr(u, 0, 0.7));
+    return (pc, M = pc.M) => { const w = wings.get(pc.tag.petal);
+      if (w) M = comp(rotL(P3, D3, w.sign * (PI / 2 + 0.5) * wu), M);
+      return comp(st, M); }; };
+}
+function opFinale(S, args) {
+  const pose = makePose(S, args), pe = pose(1);
+  return { pre: S, end: S.map(pc => ({ ...pc, M: pe(pc) })), finale: true, pose,
+    rings: [{ pts: [args.press], u0: 0.55, u1: 1.05 }],
+    draw(u) { const f = pose(u); return S.map(pc => ({ pc, M: f(pc), key: pc.L })); } };
+}
+
+/* ---------- the sequence, page by page as in the diagrams ---------- */
+const sq = [mk([[-1, -1], [1, -1], [1, 1], [-1, 1]], ID, 0, {})];
+const TL = [];
+let S = sq;
+const CH = [];
+let chStart = 0;
+const chapter = (k, m) => { CH.push({ i: TL.length, k, m }); };
+const push = (op, o = {}) => { TL.push({ op, lead: o.lead ?? 0, prep: o.prep ?? (op.line ? 0.55 : 0.15), dur: o.dur ?? 1.15, hold: o.hold ?? 0.4, cam: o.cam, note: o.note || null }); S = op.end; return op; };
+// every page plays, then plays once more from its start, then the next page
+let pageStart = 0, pageS = null;
+const page = () => { pageStart = TL.length; pageS = S; };
+const repeat = () => { const n = TL.length - pageStart; const startCh = CH.length;
+  const chs = CH.filter(c => c.i >= pageStart);
+  chs.forEach(c => CH.push({ i: TL.length + (c.i - pageStart), k: c.k, m: c.m, again: true }));
+  for (let j = 0; j < n; j++) { const e = TL[pageStart + j]; TL.push({ ...e, lead: j === 0 ? 0.6 : e.lead }); }
+  S = TL[TL.length - 1].op.end; };
+
+const O = [0, SQ2 / 2], C = [0, -SQ2 / 2], M1 = [-SQ2 / 2, 0], M2 = [SQ2 / 2, 0];
+const K1 = [M1[0] + (O[0] - M1[0]) * (SQ2 - 1), M1[1] + (O[1] - M1[1]) * (SQ2 - 1)], K2 = [-K1[0], K1[1]];
+const yk = K1[1], X = [0, yk];
+const r2 = o => o.rank < 2;
+const kiteL = () => opFold(S, { A: C, B: K1, ref: M1, sel: r2 }), kiteR = () => opFold(S, { A: C, B: K2, ref: M2, sel: r2 });
+const topFold = () => opFold(S, { A: [K1[0] - 0.2, yk], B: [K2[0] + 0.2, yk], ref: O, sel: r2 });
+
+// (1) colour side up: fold in half both ways; flip; both diagonals on the white side
+page(); chapter("Step 1", "Colour side up. Fold in half and open, both ways.");
+let f;
+push(opHold(S), { dur: 1.6, hold: 0 });
+f = push(opFold(S, { A: [-1.05, 0], B: [1.05, 0], ref: [0, 1] })); push(opUnfold(S, f), { prep: 0, dur: 0.85 });
+f = push(opFold(S, { A: [0, -1.05], B: [0, 1.05], ref: [-1, 0] })); push(opUnfold(S, f), { prep: 0, dur: 0.85, hold: 0.6 });
+chapter("Step 1", "Turn it over. Fold both diagonals and open.");
+push(opFlip(S), { lead: 0.8, dur: 1.2 });
+f = push(opFold(S, { A: [-1, -1], B: [1, 1], ref: [-1, 1] })); push(opUnfold(S, f), { prep: 0, dur: 0.85 });
+f = push(opFold(S, { A: [1, -1], B: [-1, 1], ref: [1, 1] })); push(opUnfold(S, f), { prep: 0, dur: 0.85, hold: 0.8 });
+
+// (2) collapse along the creases into the square base (white side up, corners rise and meet)
+page(); chapter("Step 2", "Bring the corners together along the creases into a square.");
+push(opCollapse(S), { lead: 0.9, prep: 1.4, dur: 6.0, hold: 1.4, cam: "low", note: [[0.74, "Lay it flat, open end down."]] });
+
+// (3)-(4) per side, as in the video: edges to the centre, top down, open the three folds, lift the bottom point
+function sideSteps(n, fast) {
+  const sp = fast ? { prep: 0.35, dur: 0.85, hold: 0.25 } : {};
+  chapter("Step 3", n === 1 ? "Fold the lower edges of the top layer to the centre line." : "Other side: edges to the centre line.");
+  const kL = push(kiteL(), { lead: 0.9, ...sp }), kR = push(kiteR(), sp);
+  chapter("Step 3", n === 1 ? "Fold the top triangle down over them." : "Other side: top triangle down.");
+  const tp = push(topFold(), { lead: 0.6, ...sp, hold: 0.6 });
+  chapter("Step 4", n === 1 ? "Open these three folds again." : "Other side: open them again.");
+  push(opUnfoldMany(S, [tp, kL, kR], [[0, 0.55], [0.35, 1], [0.35, 1]]), { lead: 0.6, dur: fast ? 1.4 : 1.8, hold: 0.5 });
+  chapter("Step 4", n === 1 ? "Lift the bottom point of the top layer up. The sides fold in." : "Other side: lift the point, sides in.");
+  push(opPetal(S, { K1, K2, C, tagN: n }), { lead: 0.6, prep: 0.6, dur: fast ? 3.6 : 4.6, hold: 1.0 });
+}
+sideSteps(1, false);
+chapter("Step 4", "Turn it over.");
+push(opFlip(S), { lead: 0.6, dur: 1.2 });
+sideSteps(2, true);
+
+// (5) fold along the lines on both sides
+const dCK = Math.hypot(K1[0] - C[0], K1[1] - C[1]), dCX = Math.hypot(X[0] - C[0], X[1] - C[1]);
+const N1 = [lerp(X[0], K1[0], dCX / (dCX + dCK)), yk], N2 = [-N1[0], yk];
+const legSel = o => o.rank < 2 && o.c[1] < yk - 1e-4;
+page(); chapter("Step 5", "Fold the lower edges to the centre line, both sides.");
+push(opFold(S, { A: C, B: N1, ref: K1, sel: legSel }), { lead: 0.9 }); push(opFold(S, { A: C, B: N2, ref: K2, sel: legSel }));
+push(opFlip(S), { dur: 1.2 });
+push(opFold(S, { A: C, B: N1, ref: K1, sel: legSel })); push(opFold(S, { A: C, B: N2, ref: K2, sel: legSel }), { hold: 0.8 });
+
+// (6) as in the video: fold each thin point up between the layers (inside reverse fold), neck and tail
+const midL = () => { const F = S.filter(p => p.tag.side === "F").map(p => p.L), B = S.filter(p => p.tag.side === "B").map(p => p.L);
+  return Math.min(...F) > Math.max(...B) ? (Math.min(...F) + Math.max(...B)) / 2 : (Math.min(...B) + Math.max(...F)) / 2; };
+const topSide = () => { const F = S.filter(p => p.tag.side === "F").map(p => p.L), B = S.filter(p => p.tag.side === "B").map(p => p.L); return Math.min(...F) > Math.max(...B) ? "F" : "B"; };
+const legAxis = sgn => { const top = [sgn * Math.abs(N1[0]) / 2, yk], a = n2([C[0] - top[0], C[1] - top[1]]);
+  const P = [top[0] + (C[0] - top[0]) * 0.2, top[1] + (C[1] - top[1]) * 0.2]; return { top, a, P, len: Math.hypot(C[0] - P[0], C[1] - P[1]) }; };
+const NECK = 112 * PI / 180, la = legAxis(-1), ra = legAxis(1);
+const RN = [[0, "Open the layers a little."], [0.24, "Push the point up between them."], [0.8, "Close it flat."]];
+page(); chapter("Step 6", "Fold one thin point up, inside the layers.");
+push(opReverse(S, { sel: (o, pc) => o.c[0] < 0 && o.c[1] < yk - 1e-4, P: la.P, axisDir: la.a, outDir: [Math.cos(NECK), Math.sin(NECK)], tip: C, Lmid: midL(), tag: { neck: 1 },
+  spine: { P: X, D: la.a }, spineRef: la.top, top: topSide() }), { lead: 0.9, prep: 0.7, dur: 3.6, hold: 0.6, note: RN });
+chapter("Step 6", "Do the same with the other point.");
+push(opReverse(S, { sel: (o, pc) => o.c[0] > 0 && o.c[1] < yk - 1e-4, P: ra.P, axisDir: ra.a, outDir: [Math.cos(PI - NECK), Math.sin(PI - NECK)], tip: C, Lmid: midL(), tag: { tail: 1 },
+  spine: { P: X, D: ra.a }, spineRef: ra.top, top: topSide() }), { lead: 0.6, prep: 0.5, dur: 2.8, hold: 0.8 });
+
+// (7) fold both wings down
+const petalL = n => { const a = S.filter(p => p.tag.petal === n).map(p => p.L); return a.reduce((x, y) => x + y, 0) / a.length; };
+const wingFold = (n, mountain) => opFold(S, { A: [K1[0] - 0.3, yk], B: [K2[0] + 0.3, yk], ref: [0, yk + 1], sel: (o, pc) => pc.tag.petal === n, mountain });
+const fp = petalL(1) > petalL(2) ? 1 : 2, bp = 3 - fp;
+page(); chapter("Step 7", "Fold the front wing down.");
+const wF = push(wingFold(fp, false), { lead: 0.9 });
+chapter("Step 7", "Fold the back wing down too.");
+const wB = push(wingFold(bp, true), { lead: 0.5, hold: 0.8 });
+
+// (8) head: fold the tip of one point down inside
+const nd = [Math.cos(NECK), Math.sin(NECK)], nTip = [la.P[0] + nd[0] * la.len, la.P[1] + nd[1] * la.len];
+const hP = [la.P[0] + nd[0] * la.len * 0.72, la.P[1] + nd[1] * la.len * 0.72], HEAD = 200 * PI / 180;
+page(); chapter("Step 8", "Fold the tip of one point down for the head.");
+{ const nl = S.filter(p => p.tag.neck).map(p => p.L);
+  push(opReverse(S, { sel: (o, pc) => !!pc.tag.neck, P: hP, axisDir: nd, outDir: [Math.cos(HEAD), Math.sin(HEAD)], tip: nTip, Lmid: (Math.min(...nl) + Math.max(...nl)) / 2, tag: { head: 1 },
+    spine: { P: la.P, D: nd }, spineRef: [la.P[0] + nd[0] * 0.3 + nd[1] * 0.05, la.P[1] + nd[1] * 0.3 - nd[0] * 0.05], top: topSide() }),
+    { lead: 0.9, prep: 0.6, dur: 2.8, hold: 0.8, note: [[0, "Open the point a little."], [0.24, "Push the tip down inside."], [0.8, "Close it flat."]] }); }
+
+// (9) pull the wings out, the crane stands
+page(); chapter("Step 9", "Pull the wings out gently and shape the body.");
+const wings = new Map([[fp, { sign: -wF.fold.sign }], [bp, { sign: -wB.fold.sign }]]);
+const fin = push(opFinale(S, { K1, K2, wings, press: [0, yk - 0.2] }), { lead: 0.9, prep: 0.2, dur: 4.2, hold: 0.4, cam: "finale" });
+chapter("Done", "Your paper crane is ready.");
+push({ pre: fin.pre, end: fin.end, draw: (u, cam) => fin.draw(1, cam), finale: true }, { dur: 4.0, hold: 0, cam: "keep" });
+
+</script>
+<script type="module">
+/* three.js renderer in the Anatomy sepia "realistic scale model" look (same recipe as the naomirajwanshi02 WebAR repos):
+   physically based paper painted in code, studio environment, ACES filmic tone mapping, a warm key light with soft
+   real shadows on the table, a cool fill and a warm rim. The fold engine above gives each piece its rigid transform. */
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+
+const W = 1080, H = 1920, FOV = 24, TH = 0.0045;
+const stage = document.getElementById('ny-stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1); renderer.setSize(W, H);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.9;
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+Object.assign(renderer.domElement.style, { position: 'absolute', left: 0, top: 0, width: W + 'px', height: H + 'px', zIndex: 5 });
+stage.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+{ const pm = new THREE.PMREMGenerator(renderer); scene.environment = pm.fromScene(new RoomEnvironment(renderer), 0.04).texture; pm.dispose(); }
+scene.environmentIntensity = 0.35;
+const camera = new THREE.PerspectiveCamera(FOV, W / H, 0.05, 60); camera.up.set(0, 0, 1);
+
+// lights (z is up): warm key from upper left front with soft shadows, cool fill, warm rim, sky/ground bounce
+const hemi = new THREE.HemisphereLight('#fff6e8', '#6a5238', 0.55); hemi.position.set(0, 0, 1); scene.add(hemi);
+const key = new THREE.DirectionalLight('#fff0d8', 2.2); key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0004; key.shadow.normalBias = 0.012; key.shadow.radius = 4;
+scene.add(key, key.target);
+const fill = new THREE.DirectionalLight('#dfe8ff', 0.45), rim = new THREE.DirectionalLight('#ffe2c0', 0.55);
+scene.add(fill, fill.target, rim, rim.target);
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ color: '#3b2a1a', opacity: 0.26 }));
+ground.receiveShadow = true; scene.add(ground);
+
+// paper painted in code: fine fibres and a little tooth; colour side warm orange, back side cream
+let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646, rr = (a, b) => a + (b - a) * rnd();
+function paperTex(base, fibre) {
+  const c = document.createElement('canvas'); c.width = c.height = 1024; const g = c.getContext('2d');
+  g.fillStyle = base; g.fillRect(0, 0, 1024, 1024);
+  for (let i = 0; i < 2600; i++) { g.strokeStyle = `rgba(${fibre},${rr(0.03, 0.09)})`; g.lineWidth = rr(0.4, 1.1);
+    const x = rr(0, 1024), y = rr(0, 1024), a = rr(0, Math.PI), l = rr(4, 22); g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke(); }
+  for (let i = 0; i < 9000; i++) { g.fillStyle = `rgba(${rnd() < 0.5 ? '255,255,255' : fibre},${rr(0.03, 0.08)})`; const s = rr(0.6, 1.8); g.fillRect(rr(0, 1024), rr(0, 1024), s, s); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; }
+function bumpTex() { const c = document.createElement('canvas'); c.width = c.height = 512; const g = c.getContext('2d');
+  g.fillStyle = '#808080'; g.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 6000; i++) { g.fillStyle = `rgba(${rnd() < 0.5 ? '255,255,255' : '0,0,0'},${rr(0.04, 0.12)})`; const s = rr(0.8, 2.4); g.fillRect(rr(0, 512), rr(0, 512), s, s); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.NoColorSpace; return t; }
+const bump = bumpTex();
+const matFront = new THREE.MeshStandardMaterial({ map: paperTex('#d47a44', '110,45,15'), roughness: 0.82, metalness: 0, bumpMap: bump, bumpScale: 0.6, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 });
+const matBack = new THREE.MeshStandardMaterial({ map: paperTex('#f1e2c4', '140,110,70'), roughness: 0.9, metalness: 0, bumpMap: bump, bumpScale: 0.6, side: THREE.BackSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 2 });
+const MAXV = 6000;
+const geo = new THREE.BufferGeometry();
+const pos = new Float32Array(MAXV * 3), nor = new Float32Array(MAXV * 3), uv = new Float32Array(MAXV * 2);
+geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3).setUsage(THREE.DynamicDrawUsage));
+geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2).setUsage(THREE.DynamicDrawUsage));
+const meshF = new THREE.Mesh(geo, matFront), meshB = new THREE.Mesh(geo, matBack);
+[meshF, meshB].forEach(m => { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; scene.add(m); });
+// the back face casts shadows too (a single sided mesh casts only from its front)
+matFront.shadowSide = THREE.DoubleSide; matBack.shadowSide = THREE.DoubleSide;
+
+// edges: folded edges and paper edges as thin dark lines, flat creases as faint lines (screen-space widths)
+const edgeMat = new LineMaterial({ color: 0x4a3220, linewidth: 1.7, transparent: true, opacity: 0.8, resolution: new THREE.Vector2(W, H) });
+const creaseMat = new LineMaterial({ color: 0x6a4a2c, linewidth: 1.1, transparent: true, opacity: 0.32, resolution: new THREE.Vector2(W, H) });
+const edges = new LineSegments2(new LineSegmentsGeometry(), edgeMat), creases = new LineSegments2(new LineSegmentsGeometry(), creaseMat);
+edges.frustumCulled = creases.frustumCulled = false; scene.add(edges, creases);
+
+/* ---- camera: E (elevation), az, target T, distance D ---- */
+const basis = c => { const w = viewVec(c), f = [-w[0], -w[1], -w[2]], r = nrm(cross(f, [0, 0, 1])), u = cross(r, f); return { w, r, u }; };
+window.fitCam3 = (states, base, box = [840, 760]) => {
+  const pts = []; states.forEach(items => items.forEach(({ pc, M }) => W3(pc, M).forEach(p => pts.push(p))));
+  const mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9]; pts.forEach(p => { for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], p[i]); mx[i] = Math.max(mx[i], p[i]); } });
+  const T = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2], { w, r, u } = basis(base), t = Math.tan(FOV / 2 * PI / 180);
+  let D = 1; pts.forEach(p => { const d = sub(p, T), x = Math.abs(dot(d, r)), y = Math.abs(dot(d, u)), z = dot(d, w);
+    D = Math.max(D, z + y / (t * box[1] / H), z + x / (t * (W / H) * box[0] / W)); });
+  return { ...base, T, D };
+};
+const lerpCam3 = (a, b, s) => ({ E: lerp(a.E, b.E, s), az: lerp(a.az, b.az, s), T: [0, 1, 2].map(i => lerp(a.T[i], b.T[i], s)), D: Math.exp(lerp(Math.log(a.D), Math.log(b.D), s)) });
+window.lerpCam = lerpCam3;
+function setCam(c) { const { w } = basis(c); camera.position.set(c.T[0] + w[0] * c.D, c.T[1] + w[1] * c.D, c.T[2] + w[2] * c.D); camera.lookAt(c.T[0], c.T[1], c.T[2]); camera.updateMatrixWorld(); }
+const v3 = new THREE.Vector3();
+window.proj = (p) => { v3.set(p[0], p[1], p[2] || 0).project(camera); return [(v3.x + 1) / 2 * W, (1 - v3.y) / 2 * H]; };
+
+/* ---- layer thickness: each sheet rests one paper-thickness above the layers under it ---- */
+function ranks(S) { const Wp = S.map(W2), Cn = Wp.map(cent), r = new Map();
+  S.forEach((pc, i) => { let k = 0; S.forEach((q, j) => { if (q.L < pc.L && inside(Wp[j], Cn[i])) k++; }); r.set(pc.id, k); }); return r; }
+function rankInfo(op) { if (op._ri) return op._ri;
+  const pre = op.pre, end = op.flatEnd || op.end, rp = ranks(pre), flatEnd = !op.finale;
+  const re = flatEnd ? ranks(end) : null, Mp = new Map(pre.map(p => [p.id, p.M])), Me = new Map(end.map(p => [p.id, p.M]));
+  return (op._ri = { rp, re, Mp, Me }); }
+const carry = (Mnow, Mref, r) => { const R = Mnow.R, Q = Mref.R; // (Mnow Mref^-1).R * (0,0,r)
+  const z = [Q[2] * r * TH, Q[5] * r * TH, Q[8] * r * TH]; return mv(R, z); };
+
+// neighbour piece across each crease-pattern edge (-1 = paper edge), per op
+function nbOf(op) { if (op._nb) return op._nb; const pcs = op.pre, nb = new Map();
+  pcs.forEach(pc => { const ccw = area(pc.cp) > 0 ? 1 : -1; nb.set(pc.id, pc.cp.map((a, k) => { const b = pc.cp[(k + 1) % pc.cp.length];
+    if ((Math.abs(a[0]) > 1 - 1e-6 && Math.abs(b[0]) > 1 - 1e-6 && Math.abs(a[0] - b[0]) < 1e-6) || (Math.abs(a[1]) > 1 - 1e-6 && Math.abs(b[1]) > 1 - 1e-6 && Math.abs(a[1] - b[1]) < 1e-6)) return -1;
+    const m = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], d = n2([b[0] - a[0], b[1] - a[1]]), o = [m[0] + ccw * d[1] * 1e-4, m[1] - ccw * d[0] * 1e-4];
+    const q = pcs.find(r => r !== pc && inside(r.cp, o)); return q ? q.id : -1; })); });
+  return (op._nb = nb); }
+
+/* ---- draw one frame ---- */
+window.drawPaper = (op, items, cam, u) => {
+  setCam(cam);
+  const nb = nbOf(op), Mm = new Map(items.map(it => [it.pc.id, it.M])), ri = rankInfo(op);
+  const s = !ri || op.finale || op.posedOp || !ri.re ? 0 : io(clamp(u));
+  let n = 0; const eseg = [], cseg = []; let zmin = 1e9;
+  const mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+  for (const it of items) {
+    const M = it.M; let off = [0, 0, 0];
+    if (ri) { const a = carry(M, ri.Mp.get(it.pc.id), ri.rp.get(it.pc.id) || 0);
+      const b = ri.re && ri.Me.get(it.pc.id) ? carry(M, ri.Me.get(it.pc.id), ri.re.get(it.pc.id) || 0) : a;
+      off = add(mul(a, 1 - s), mul(b, s)); }
+    const P = it.pc.cp.map(q => add(app(M, [q[0], q[1], 0]), off));
+    const nrmv = mv(M.R, [0, 0, 1]), ccw = area(it.pc.cp) > 0;
+    P.forEach(p => { zmin = Math.min(zmin, p[2]); for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], p[i]); mx[i] = Math.max(mx[i], p[i]); } });
+    for (let k = 1; k + 1 < P.length; k++) { const tri = ccw ? [0, k, k + 1] : [0, k + 1, k];
+      for (const j of tri) { if (n >= MAXV) break; pos.set(P[j], n * 3); nor.set(nrmv, n * 3); uv.set([(it.pc.cp[j][0] + 1) / 2, (it.pc.cp[j][1] + 1) / 2], n * 2); n++; } }
+    // edges: lifted a hair toward whichever side faces the camera so they sit on the visible face
+    const e = nb.get(it.pc.id) || [], lift = mul(nrmv, (dot(nrmv, viewVec(cam)) >= 0 ? 1 : -1) * TH * 0.4);
+    P.forEach((a, k) => { const b = P[(k + 1) % P.length], q = e[k], Mq = q >= 0 ? Mm.get(q) : null;
+      const seg = [...add(a, lift), ...add(b, lift)], flat = Mq && sameM(Mq, M);
+      if (flat && op.idMin != null && u <= 0 && it.pc.id >= op.idMin && q >= op.idMin) return; // this fold's crease: not there until it starts
+      (flat ? cseg : eseg).push(...seg); });
+  }
+  if (u <= 0 && op._zTop == null) { let zt = -1e9; for (let i = 2; i < n * 3; i += 3) zt = Math.max(zt, pos[i]); op._zTop = zt; }
+  geo.setDrawRange(0, n); geo.attributes.position.needsUpdate = geo.attributes.normal.needsUpdate = geo.attributes.uv.needsUpdate = true;
+  geo.computeBoundingSphere();
+  edges.geometry.dispose(); edges.geometry = new LineSegmentsGeometry().setPositions(eseg.length ? eseg : [0, 0, 0, 0, 0, 0]);
+  creases.geometry.dispose(); creases.geometry = new LineSegmentsGeometry().setPositions(cseg.length ? cseg : [0, 0, 0, 0, 0, 0]);
+  creases.visible = cseg.length > 0;
+  ground.position.set(0, 0, zmin - 0.003);
+  // lights follow the model's centre (the sun stays put in the room)
+  const c = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2], sz = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2], 1);
+  key.target.position.set(...c); key.position.set(c[0] - 1.6 * sz, c[1] - 1.2 * sz, c[2] + 3.2 * sz);
+  fill.target.position.set(...c); fill.position.set(c[0] + 2 * sz, c[1] - 1.5 * sz, c[2] + 1.5 * sz);
+  rim.target.position.set(...c); rim.position.set(c[0] + 1.2 * sz, c[1] + 3 * sz, c[2] + 1.6 * sz);
+  const sc = key.shadow.camera, h = sz * 2.4; Object.assign(sc, { left: -h, right: h, top: h, bottom: -h, near: 0.1, far: 12 * sz }); sc.updateProjectionMatrix();
+  renderer.render(scene, camera);
+};
+window.dispatchEvent(new Event('crane3d-ready'));
+
+{
+/* timeline, camera, captions, cues and playback controls */
+const CAM0 = { E: 58 * PI / 180, az: 0 }, LOW = { E: 34 * PI / 180, az: 0 }, ORBIT = { E: 30 * PI / 180, az: -32 * PI / 180 }, CAMF = { E: 20 * PI / 180, az: -34 * PI / 180 };
+let t = 0; TL.forEach(e => { e.t0 = t; e.tm = t + e.lead + e.prep; t = e.tm + e.dur + e.hold; e.t1 = t; });
+const END = t;
+const baseOf = e => e.cam === "finale" || e.cam === "keep" ? CAMF : e.cam === "low" ? LOW : e.cam === "orbit" ? ORBIT : CAM0;
+TL.forEach((e, i) => {
+  if (e.cam === "keep") { e.camT = TL[i - 1].camT; return; }
+  const b = baseOf(e), cb = { ...b, T: [0, 0, 0], D: 6 };
+  e.camT = fitCam3(e.cam === "finale" ? [e.op.draw(0.5, cb), e.op.draw(0.7, cb), e.op.draw(0.85, cb), e.op.draw(1, cb)] : [e.op.draw(0, cb), e.op.draw(0.5, cb), e.op.draw(1, cb)], b);
+});
+// one steady camera per caption (widest framing of its entries), so it does not breathe on every fold
+CH.forEach((ch, k) => { const a = ch.i, z = k + 1 < CH.length ? CH[k + 1].i : TL.length, es = TL.slice(a, z).filter(e => !e.cam || e.cam === "low");
+  if (!es.length) return; const D = Math.max(...es.map(e => e.camT.D)), T = [0, 1, 2].map(i => es.reduce((s, e) => s + e.camT.T[i], 0) / es.length);
+  es.forEach(e => { e.camT = { ...e.camT, D, T }; }); });
+function camAt(t) { const i = TL.findIndex(e => t < e.t1), k = i < 0 ? TL.length - 1 : i, e = TL[k], prev = k > 0 ? TL[k - 1].camT : e.camT;
+  if (e.cam === "finale") return lerpCam(prev, e.camT, io(pr(t, e.tm, e.tm + e.dur * 0.45)));
+  return lerpCam(prev, e.camT, io(pr(t, e.t0, e.t0 + 0.8))); }
+
+/* overlay: dashed fold line (draws on), arc arrow, pop rings, FLIP arrow */
+const stage = document.getElementById("ny-stage");
+const svg = sv("svg", { width: 1080, height: 1920, viewBox: "0 0 1080 1920" }, stage); Object.assign(svg.style, { position: "absolute", left: 0, top: 0, zIndex: 10 });
+const annG = sv("g", {}, svg);
+const lnGlow = sv("line", { stroke: "#fbf3e2", "stroke-width": 9, "stroke-linecap": "round" }, annG), ln = sv("line", { stroke: "#2a1d10", "stroke-width": 3.4, "stroke-dasharray": "14 11" }, annG);
+const arGlow = sv("path", { fill: "none", stroke: "#fbf3e2", "stroke-width": 10, "stroke-linecap": "round" }, annG), ar = sv("path", { fill: "none", stroke: "#2a1d10", "stroke-width": 4, "stroke-linecap": "round" }, annG);
+const arHead = sv("path", { fill: "#2a1d10", stroke: "#fbf3e2", "stroke-width": 2, "paint-order": "stroke" }, annG);
+const crLines = [0, 1, 2, 3].map(() => [sv("line", { stroke: "#fbf3e2", "stroke-width": 8, "stroke-linecap": "round" }, annG), sv("line", { stroke: "#2a1d10", "stroke-width": 3.2, "stroke-dasharray": "14 11" }, annG)]);
+const rings = [0, 1, 2, 3].map(() => sv("circle", { r: 26, fill: "none", stroke: "#c2402f", "stroke-width": 4.5 }, annG));
+const note = el("div", "cr-note", "", stage); let noteKey = "";
+function arrowPath(a, b) { const L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 30) return false;
+  let nx = -(b[1] - a[1]) / L, ny = (b[0] - a[0]) / L; if (ny > 0) { nx = -nx; ny = -ny; }
+  const cx = (a[0] + b[0]) / 2 + nx * L * 0.38, cy = (a[1] + b[1]) / 2 + ny * L * 0.38, sh = 0.18;
+  const A2 = [lerp(a[0], cx, sh), lerp(a[1], cy, sh)], B2 = [lerp(b[0], cx, sh), lerp(b[1], cy, sh)];
+  const d = `M${A2[0]} ${A2[1]}Q${cx} ${cy} ${B2[0]} ${B2[1]}`; ar.setAttribute("d", d); arGlow.setAttribute("d", d);
+  const tx = B2[0] - cx, ty = B2[1] - cy, tl = Math.hypot(tx, ty), ux = tx / tl, uy = ty / tl, hs = 20;
+  arHead.setAttribute("d", `M${B2[0] + ux * 8} ${B2[1] + uy * 8}L${B2[0] - ux * hs - uy * hs * 0.55} ${B2[1] - uy * hs + ux * hs * 0.55}L${B2[0] - ux * hs + uy * hs * 0.55} ${B2[1] - uy * hs - ux * hs * 0.55}Z`); return true; }
+function drawAnn(e, t) {
+  const op = e.op, zt = op._zTop || 0, P3z = (x, y) => proj([x, y, zt]), um = (t - e.tm) / e.dur, started = t >= e.t0 + e.lead;
+  const fade = 1 - pr(t, e.tm + e.dur * 0.5, e.tm + e.dur * 0.8), ud = eo(pr(t, e.t0 + e.lead, e.t0 + e.lead + Math.max(0.15, e.prep)));
+  [lnGlow, ln, arGlow, ar, arHead, ...rings, ...crLines.flat()].forEach(x => x.style.opacity = 0);
+  let txt = ""; if (e.note && started) e.note.forEach(([u0, s]) => { if (um >= u0 - 1e-9) txt = s; });
+  if (txt !== noteKey) { noteKey = txt; note.textContent = txt; note._t = t; }
+  const nu = txt ? eo(pr(t, note._t ?? t, (note._t ?? t) + 0.35)) : 0; note.style.opacity = nu;
+  if (!started) return;
+  if (op.creases) { const cu = eo(pr(t, e.t0 + e.lead, e.t0 + e.lead + 0.8)) * (1 - pr(um, 0.02, 0.15));
+    op.creases.forEach(([A, B], k) => { const a = P3z(A[0] * 1.08, A[1] * 1.08), b = P3z(B[0] * 1.08, B[1] * 1.08);
+      crLines[k].forEach((l, j) => { l.setAttribute("x1", a[0]); l.setAttribute("y1", a[1]); l.setAttribute("x2", b[0]); l.setAttribute("y2", b[1]); l.style.opacity = cu * (j ? 1 : 0.85); }); }); }
+  if (op.rings) { let k = 0; op.rings.forEach(r => { const vis = pr(um, r.u0, r.u0 + 0.04) * (1 - pr(um, r.u1 - 0.06, r.u1));
+    const pts = r.track && um > 0 ? r.track(clamp(um)) : r.pts.map(q => [q[0], q[1], (q[2] || 0) + zt]);
+    pts.forEach(q => { const c = rings[k++]; if (!c) return; const s = proj(q); c.setAttribute("cx", s[0]); c.setAttribute("cy", s[1]); c.style.opacity = vis; }); }); }
+  if (t > e.tm + e.dur * 0.8 || op.posedOp) return;
+  if (op.line) { const [A, B] = op.line, d = n2([B[0] - A[0], B[1] - A[1]]), ext = 0.12;
+    const a = P3z(A[0] - d[0] * ext, A[1] - d[1] * ext), b0 = P3z(B[0] + d[0] * ext, B[1] + d[1] * ext), b = [lerp(a[0], b0[0], ud), lerp(a[1], b0[1], ud)];
+    [lnGlow, ln].forEach(l => { l.setAttribute("x1", a[0]); l.setAttribute("y1", a[1]); l.setAttribute("x2", b[0]); l.setAttribute("y2", b[1]); });
+    ln.style.opacity = fade; lnGlow.style.opacity = fade * 0.85; }
+  if (op.arrow && arrowPath(proj(add(op.arrow[0], [0, 0, zt])), proj(add(op.arrow[1], [0, 0, zt])))) { [ar, arHead].forEach(x => x.style.opacity = ud * fade); arGlow.style.opacity = ud * fade * 0.85; }
+  if (op.flip) { const c = proj([0, -1.2, 0]), r = 120, p0 = [c[0] + r, c[1]], p1 = [c[0] - r, c[1]];
+    const d = `M${p0[0]} ${p0[1]}Q${c[0]} ${c[1] + 70} ${p1[0]} ${p1[1]}`; ar.setAttribute("d", d); arGlow.setAttribute("d", d);
+    arHead.setAttribute("d", `M${p1[0] - 6} ${p1[1] - 10}L${p1[0] + 22} ${p1[1] - 2}L${p1[0] + 4} ${p1[1] + 20}Z`);
+    [ar, arHead].forEach(x => x.style.opacity = ud * fade); arGlow.style.opacity = ud * fade * 0.85; }
+}
+
+/* captions: step label + the diagram's own words; REPEAT tag on the second play */
+const capA = el("div", "cr-cap", "", stage), capB = el("div", "cr-cap", "", stage);
+CH.forEach(c => { c.t = TL[c.i].t0; });
+const capHTML = c => c ? `<div class="k">${c.k}</div><div class="m">${c.m}</div>` : "";
+let capKey = -1;
+function drawCap(t) { let k = 0; CH.forEach((c, i) => { if (t >= c.t) k = i; });
+  const c = CH[k], prev = CH[k - 1];
+  if (capKey !== k) { capKey = k; capA.innerHTML = capHTML(c); capB.innerHTML = capHTML(prev); }
+  const u = eo(pr(t, c.t, c.t + 0.3)); capA.style.opacity = u; capA.style.translate = `0 ${(1 - u) * 18}px`; capB.style.opacity = 1 - pr(t, c.t, c.t + 0.18); }
+
+function render(t) {
+  const cam = camAt(t), i = TL.findIndex(e => t < e.t1), e = TL[i < 0 ? TL.length - 1 : i], u = pr(t, e.tm, e.tm + e.dur);
+  drawPaper(e.op, e.op.draw(u, cam), cam, u);
+  drawAnn(e, t); drawCap(t);
+  stage.style.setProperty("--intro", eo(pr(t, 0, 0.6)));
+}
+console.log("TL", END.toFixed(2), JSON.stringify(CH.map(c => [c.k + (c.again ? "*" : ""), +c.t.toFixed(2)])));
+NY.mount({ end: END, render });
+
+/* pause anywhere: tap/click toggles pause, ← → jump between steps, the bar at the bottom shows on hover */
+{ const btn = document.querySelector("#ny-ctl button"), range = document.querySelector("#ny-ctl input[type=range]");
+  stage.addEventListener("click", () => btn && btn.click());
+  const starts = CH.map(c => c.t);
+  addEventListener("keydown", ev => { if (ev.code !== "ArrowLeft" && ev.code !== "ArrowRight") return;
+    const now = +range.value; let k = starts.findIndex(s => s > now + 0.05); if (k < 0) k = starts.length;
+    const to = ev.code === "ArrowRight" ? starts[k] ?? END - 0.01 : starts[Math.max(0, k - 2)];
+    if (btn.textContent === "Pause") btn.click(); NY.seek(to); }); }
+
+}
+</script>
+</body></html>

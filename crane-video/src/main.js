@@ -1,0 +1,535 @@
+// Timeline, camera, annotations, captions and playback for the paper crane guide.
+import * as G from './geom.js';
+import * as E from './engine.js';
+import { buildSequence } from './sequence.js';
+import { Renderer, TOK } from './render.js';
+
+const W = 1080, H = 1920;
+const TH = 0.003; // paper thickness per layer (world units; the square base is 1 tall)
+const STAGE = { cy: 925, w: 880, h: 700 }; // stage box in px
+const FOV = 24;
+const LIFT = 0.0016; // ink lines sit just above the paper surface
+
+const beats = buildSequence();
+let T = 0;
+for (const b of beats) { b.t0 = T; b.t1 = T + b.lead + b.dur + b.hold; T = b.t1; }
+const DURATION = T;
+
+// ---------------------------------------------------------------- per-state caches
+const hCache = new WeakMap();
+function heights(state) {
+  if (hCache.has(state)) return hCache.get(state);
+  const P = state.map((p) => ({ p, poly: E.wpoly(p), bb: null }));
+  for (const q of P) q.bb = G.bbox(q.poly);
+  const order = P.slice().sort((a, b) => a.p.L - b.p.L);
+  const h = new Map();
+  for (let i = 0; i < order.length; i++) {
+    const a = order[i];
+    let m = -1;
+    for (let j = 0; j < i; j++) {
+      const b = order[j];
+      if (b.p.L >= a.p.L - 1e-9) continue;
+      const hb = h.get(b.p.id);
+      if (hb <= m) continue;
+      if (b.bb[0] > a.bb[2] - 1e-6 || b.bb[2] < a.bb[0] + 1e-6 || b.bb[1] > a.bb[3] - 1e-6 || b.bb[3] < a.bb[1] + 1e-6) continue;
+      if (G.interArea(a.poly, b.poly) > 2e-6) m = hb;
+    }
+    h.set(a.p.id, m + 1);
+  }
+  hCache.set(state, h);
+  return h;
+}
+const adjCache = new WeakMap();
+function adjacency(state) {
+  if (adjCache.has(state)) return adjCache.get(state);
+  const out = new Map();
+  const bbs = state.map((p) => G.bbox(p.poly));
+  state.forEach((p, i) => {
+    const segs = [];
+    for (let e = 0; e < p.poly.length; e++) {
+      const a = p.poly[e], b = p.poly[(e + 1) % p.poly.length];
+      const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy;
+      const ivs = [];
+      state.forEach((q, j) => {
+        if (j === i) return;
+        const bb = bbs[j];
+        if (bb[0] > Math.max(a[0], b[0]) + 1e-7 || bb[2] < Math.min(a[0], b[0]) - 1e-7 || bb[1] > Math.max(a[1], b[1]) + 1e-7 || bb[3] < Math.min(a[1], b[1]) - 1e-7) return;
+        for (let f = 0; f < q.poly.length; f++) {
+          const c = q.poly[f], d = q.poly[(f + 1) % q.poly.length];
+          const cc = (dx * (c[1] - a[1]) - dy * (c[0] - a[0])) / Math.sqrt(L2);
+          const cd = (dx * (d[1] - a[1]) - dy * (d[0] - a[0])) / Math.sqrt(L2);
+          if (Math.abs(cc) > 1e-7 || Math.abs(cd) > 1e-7) continue;
+          let t0 = ((c[0] - a[0]) * dx + (c[1] - a[1]) * dy) / L2;
+          let t1 = ((d[0] - a[0]) * dx + (d[1] - a[1]) * dy) / L2;
+          if (t0 > t1) [t0, t1] = [t1, t0];
+          t0 = Math.max(0, t0); t1 = Math.min(1, t1);
+          if (t1 - t0 > 1e-6) ivs.push([t0, t1, q.id]);
+        }
+      });
+      ivs.sort((x, y) => x[0] - y[0]);
+      let t = 0;
+      for (const iv of ivs) {
+        if (iv[0] > t + 1e-6) segs.push([a, b, t, iv[0], -1]);
+        segs.push([a, b, Math.max(t, iv[0]), iv[1], iv[2]]);
+        t = Math.max(t, iv[1]);
+      }
+      if (t < 1 - 1e-6) segs.push([a, b, t, 1, -1]);
+    }
+    out.set(p.id, segs);
+  });
+  adjCache.set(state, out);
+  return out;
+}
+
+// ---------------------------------------------------------------- frame state at time t
+function locate(t) {
+  t = Math.max(0, Math.min(DURATION - 1e-6, t));
+  let lo = 0, hi = beats.length - 1;
+  while (lo < hi) {
+    const m = (lo + hi + 1) >> 1;
+    if (beats[m].t0 <= t) lo = m; else hi = m - 1;
+  }
+  return { b: beats[lo], i: lo, lt: t - beats[lo].t0 };
+}
+function flatFrame(state) {
+  return { pieces: state, poses: state.map(E.flatPose), h: heights(state), gR: null };
+}
+function opFrame(b, u, w) {
+  const op = b.op;
+  const hp = heights(op.work), hq = heights(op.post);
+  const h = new Map();
+  for (const p of op.work) h.set(p.id, G.lerp(hp.get(p.id) ?? 0, hq.get(p.id) ?? hp.get(p.id) ?? 0, w));
+  if (op.kind === 'finale') { const k = 1 - 0.6 * G.ease(G.win(u, 0, 0.6)); for (const [id, v] of h) h.set(id, v * k); }
+  return { pieces: op.work, poses: op.pose(u), h, gR: op.globalR ? op.globalR(u) : null };
+}
+function phaseOf(b, lt) {
+  if (lt < b.lead) return { ph: 'lead', f: 0 };
+  if (lt < b.lead + b.dur) return { ph: 'move', f: (lt - b.lead) / b.dur };
+  return { ph: 'hold', f: 1 };
+}
+function frameAt(t) {
+  const { b, lt } = locate(t);
+  const { ph, f } = phaseOf(b, lt);
+  const op = b.op;
+  if (op.kind === 'hold') return flatFrame(op.post);
+  const span = b.u1 - b.u0;
+  if (ph === 'lead') {
+    if (b.u0 === 0) return flatFrame(b.pre);
+    return opFrame(b, b.u0, G.smooth(b.u0));
+  }
+  if (ph === 'hold' && b.u1 >= 1 && op.kind !== 'finale') return flatFrame(op.post);
+  const g = b.easeBeat ? G.ease(f) : f;
+  const u = b.u0 + span * g;
+  return opFrame(b, u, op.kind === 'collapse' ? G.smooth(u) : G.smooth(G.win(u, 0.15, 0.85)));
+}
+
+// world vertices of a frame
+function geometry(fr) {
+  const out = [];
+  fr.pieces.forEach((p, i) => {
+    const P = fr.poses[i];
+    const hz = (fr.h.get(p.id) || 0) * TH;
+    const off = fr.gR ? G.mv(fr.gR, [0, 0, hz]) : [0, 0, hz];
+    const verts = p.poly.map((v) => G.add(G.apply(P, [v[0], v[1], 0]), off));
+    out.push({ id: p.id, p, P, off, verts, uv: p.poly.map((v) => [v[0] * 0.8 + 0.5, v[1] * 0.8 + 0.5]), normal: G.mv(P.R, [0, 0, 1]) });
+  });
+  return out;
+}
+const samePose = (A, B) => {
+  for (let k = 0; k < 9; k++) if (Math.abs(A.R[k] - B.R[k]) > 1e-7) return false;
+  for (let k = 0; k < 3; k++) if (Math.abs(A.T[k] - B.T[k]) > 1e-7) return false;
+  return true;
+};
+function edges(fr, geo, camPos) {
+  const adj = adjacency(fr.pieces);
+  const byId = new Map(geo.map((g) => [g.id, g]));
+  const dark = [], faint = [];
+  for (const g of geo) {
+    const c = g.verts[0];
+    const toCam = G.sub(camPos, c);
+    const s = G.dot(g.normal, toCam) >= 0 ? 1 : -1;
+    const lift = G.scale(g.normal, s * LIFT);
+    for (const [a, b, t0, t1, nb] of adj.get(g.id)) {
+      const pa = [a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0, 0];
+      const pb = [a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1, 0];
+      const A = G.add(G.add(G.apply(g.P, pa), g.off), lift), B = G.add(G.add(G.apply(g.P, pb), g.off), lift);
+      let isCrease = false;
+      if (nb >= 0) {
+        const n = byId.get(nb);
+        if (n && samePose(n.P, g.P)) {
+          isCrease = true;
+          if (nb < g.id) continue; // draw once
+        }
+      }
+      (isCrease ? faint : dark).push(...A, ...B);
+    }
+  }
+  return { dark, faint };
+}
+
+// ---------------------------------------------------------------- camera
+const camDir = (el, az) => [Math.cos(el) * Math.sin(az), -Math.cos(el) * Math.cos(az), Math.sin(el)];
+function fitCam(points, el, az) {
+  const d = camDir(el, az);
+  const f = G.scale(d, -1);
+  let r = G.cross(f, [0, 0, 1]);
+  if (G.len(r) < 1e-6) r = [1, 0, 0];
+  r = G.norm(r);
+  const u = G.cross(r, f);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const p of points) {
+    const x = G.dot(p, r), y = G.dot(p, u), z = G.dot(p, d);
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); z0 = Math.min(z0, z); z1 = Math.max(z1, z);
+  }
+  const wv = x1 - x0, hv = y1 - y0;
+  const tn = Math.tan((FOV / 2) * Math.PI / 180);
+  const Dh = hv / (2 * tn * (STAGE.h / H));
+  const Dw = wv / (2 * tn * (W / H) * (STAGE.w / W));
+  const D = Math.max(Dh, Dw, 2.2) + (z1 - z0) * 0.5;
+  const c = G.add(G.add(G.scale(r, (x0 + x1) / 2), G.scale(u, (y0 + y1) / 2)), G.scale(d, (z0 + z1) / 2));
+  return { el, az, target: c, D };
+}
+const CAMSET = {
+  base: { el: 64 * Math.PI / 180, az: 0 },
+  tilt: { el: 40 * Math.PI / 180, az: -26 * Math.PI / 180 },
+  orbit: { el: 46 * Math.PI / 180, az: -30 * Math.PI / 180 },
+  finale: { el: 22 * Math.PI / 180, az: -28 * Math.PI / 180 },
+};
+const camKey = (b) => b.step + '|' + (b.cam.tilt ? 'tilt' : b.cam.orbit ? 'orbit' : b.cam.finale ? 'finale' : 'base');
+// group consecutive beats by key and fit each group
+const camGroups = [];
+for (const b of beats) {
+  const k = camKey(b);
+  const g = camGroups[camGroups.length - 1];
+  if (g && g.key === k) g.beats.push(b); else camGroups.push({ key: k, beats: [b] });
+}
+for (const g of camGroups) {
+  const pts = [];
+  const finale = g.key.endsWith('finale');
+  for (const b of g.beats) {
+    const n = b.op.kind === 'hold' ? 1 : 9;
+    for (let i = 0; i <= n; i++) {
+      const t = finale ? b.t1 - 0.01 : b.t0 + (b.t1 - b.t0 - 0.01) * (i / n);
+      for (const gg of geometry(frameAt(t))) pts.push(...gg.verts);
+    }
+  }
+  const set = CAMSET[g.key.split('|')[1]];
+  g.cam = fitCam(pts, set.el, set.az);
+  g.t0 = g.beats[0].t0;
+  g.t1 = g.beats[g.beats.length - 1].t1;
+  g.blend = finale ? g.beats[0].lead + g.beats[0].dur * 0.95 : 1.0;
+}
+function camAt(t) {
+  let i = camGroups.findIndex((g) => t < g.t1);
+  if (i < 0) i = camGroups.length - 1;
+  const g = camGroups[i];
+  let c = g.cam;
+  if (i > 0) {
+    const k = G.ease((t - g.t0) / g.blend);
+    const p = camGroups[i - 1].cam;
+    if (k < 1) c = { el: G.lerp(p.el, c.el, k), az: G.lerp(p.az, c.az, k), D: G.lerp(p.D, c.D, k), target: G.lerp3(p.target, c.target, k) };
+  }
+  const d = camDir(c.el, c.az);
+  // shift so the stage centre (not the frame centre) sits on the target
+  const tn = Math.tan((FOV / 2) * Math.PI / 180);
+  const visH = 2 * c.D * tn;
+  const f = G.scale(d, -1);
+  const r = G.norm(G.cross(f, [0, 0, 1]));
+  const up = G.cross(r, f);
+  const look = G.sub(c.target, G.scale(up, ((H / 2 - STAGE.cy) / H) * visH));
+  return { pos: G.add(look, G.scale(d, c.D)), look };
+}
+
+// ---------------------------------------------------------------- annotations
+function topZ(state) {
+  const h = heights(state);
+  let m = 0;
+  for (const v of h.values()) m = Math.max(m, v);
+  return m * TH + 0.004;
+}
+function pointPath(op, id, cp, u0, u1, lift, toward) {
+  const idx = op.work.findIndex((p) => p.id === id);
+  const pts = [];
+  for (let i = 0; i <= 48; i++) {
+    const u = u0 + (u1 - u0) * (i / 48);
+    let q = G.apply(op.pose(u)[idx], [cp[0], cp[1], 0]);
+    if (toward) q = G.add(toward.c, G.scale(G.sub(q, toward.c), toward.k));
+    q = G.add(q, [0, 0, lift + 0.06 * Math.sin(Math.PI * (i / 48))]);
+    pts.push(q);
+  }
+  return pts;
+}
+function findVertex(state, wpt) {
+  for (const p of state) for (const v of p.poly) {
+    const w = E.w2(p, v);
+    if (Math.hypot(w[0] - wpt[0], w[1] - wpt[1]) < 1e-6) return { id: p.id, cp: v };
+  }
+  return null;
+}
+function lineExtent(state, P, D, filter) {
+  let a = Infinity, b = -Infinity;
+  for (const p of state) {
+    if (filter && !filter(p)) continue;
+    for (const v of E.wpoly(p)) {
+      const dist = D[0] * (v[1] - P[1]) - D[1] * (v[0] - P[0]);
+      if (Math.abs(dist) > 1e-6) continue;
+      const s = (v[0] - P[0]) * D[0] + (v[1] - P[1]) * D[1];
+      a = Math.min(a, s); b = Math.max(b, s);
+    }
+  }
+  return a < b ? [a, b] : null;
+}
+for (const b of beats) {
+  const op = b.op;
+  b.anns = [];
+  if (op.kind === 'hold' || op.kind === 'flip' || op.kind === 'finale') continue;
+  const z = topZ(op.work) + 0.002;
+  const dash = (P, D, ext) => b.anns.push({ kind: 'dash', a: [P[0] + D[0] * ext[0], P[1] + D[1] * ext[0], z], b: [P[0] + D[0] * ext[1], P[1] + D[1] * ext[1], z] });
+  const arrow = (pts) => b.anns.push({ kind: 'arrow', pts });
+  const ring = (c) => b.anns.push({ kind: 'ring', c: [c[0], c[1], z] });
+  if (op.kind === 'fold' || op.kind === 'unfold') {
+    op.parts.forEach((pt, k) => {
+      const ids = op.partIds[k];
+      const ext = lineExtent(op.work, pt.P, pt.D, (p) => ids.has(p.id)) || lineExtent(op.work, pt.P, pt.D);
+      if (op.kind === 'fold' && ext) dash(pt.P, pt.D, ext);
+      // tracked point: the moving vertex farthest from the line
+      let best = null, bd = -1;
+      for (const p of op.work) {
+        if (!ids.has(p.id)) continue;
+        for (const v of p.poly) {
+          const w = E.w2(p, v);
+          const d = Math.abs(pt.D[0] * (w[1] - pt.P[1]) - pt.D[1] * (w[0] - pt.P[0]));
+          if (d > bd + 1e-9) { bd = d; best = { id: p.id, cp: v, w }; }
+        }
+      }
+      if (!best) return;
+      const w = (op.kind === 'unfold' ? op.wins && op.wins[k] : pt.win) || [0, 1];
+      const s = ((best.w[0] - pt.P[0]) * pt.D[0] + (best.w[1] - pt.P[1]) * pt.D[1]);
+      const c = [pt.P[0] + pt.D[0] * s, pt.P[1] + pt.D[1] * s, z];
+      arrow(pointPath(op, best.id, best.cp, w[0], w[1], z, { c, k: 0.8 }));
+    });
+  } else if (op.kind === 'collapse') {
+    if (b.u0 === 0) {
+      for (const wp of [[0, 1], [1, 0], [-1, 0]]) {
+        const v = findVertex(op.work, wp);
+        if (v) arrow(pointPath(op, v.id, v.cp, 0, 1, 0.02, { c: [0, -0.2, 0], k: 0.86 }));
+      }
+    }
+  } else if (op.kind === 'petal') {
+    const kx = E.KR[0];
+    dash([0, E.YK], [1, 0], [-kx, kx]);
+    const v = op.work.find((p) => (op.facet.get(p.id) || '')[0] === 'b' && p.poly.some((q) => Math.hypot(...E.w2(p, q).map((x, i) => x - [0, -1][i])) < 1e-6));
+    if (v) {
+      const cp = v.poly.find((q) => Math.hypot(...E.w2(v, q).map((x, i) => x - [0, -1][i])) < 1e-6);
+      arrow(pointPath(op, v.id, cp, 0, 1, z, { c: [0, E.YK, z], k: 0.82 }));
+    }
+    ring([0, -1]);
+  } else if (op.kind === 'reverse') {
+    const { P, D } = op.line;
+    const ext = lineExtent(op.work, P, D, (p) => op.moving.has(p.id));
+    if (ext) dash(P, D, [ext[0] - 0.03, ext[1] + 0.03]);
+    let best = null, bd = -1;
+    for (const p of op.work) {
+      if (!op.moving.has(p.id)) continue;
+      for (const v of p.poly) {
+        const w = E.w2(p, v);
+        const d = Math.hypot(w[0] - P[0], w[1] - P[1]);
+        if (d > bd) { bd = d; best = { id: p.id, cp: v }; }
+      }
+    }
+    if (best) arrow(pointPath(op, best.id, best.cp, 0, 1, z, { c: [P[0], P[1], z], k: 0.62 }));
+    ring(P);
+  }
+}
+
+function dashSegs(a, b, prog) {
+  const L = G.len(G.sub(b, a)), dir = G.scale(G.sub(b, a), 1 / L);
+  const out = [];
+  const end = L * prog;
+  for (let s = 0; s < end; s += 0.075) {
+    const e = Math.min(s + 0.045, end);
+    out.push(...G.add(a, G.scale(dir, s)), ...G.add(a, G.scale(dir, e)));
+  }
+  return out;
+}
+function polySegs(pts, prog) {
+  const out = [];
+  const n = Math.max(1, Math.floor((pts.length - 1) * prog));
+  for (let i = 0; i < n; i++) out.push(...pts[i], ...pts[i + 1]);
+  return { segs: out, n };
+}
+function arrowHead(pts, n, camPos, size) {
+  if (n < 1) return [];
+  const tip = pts[n], prev = pts[Math.max(0, n - 3)];
+  const dir = G.norm(G.sub(tip, prev));
+  const view = G.norm(G.sub(camPos, tip));
+  const side = G.norm(G.cross(dir, view));
+  const back = G.scale(dir, -size);
+  const a = G.add(tip, G.add(back, G.scale(side, size * 0.62)));
+  const c = G.add(tip, G.sub(back, G.scale(side, size * 0.62)));
+  return [...tip, ...a, ...tip, ...c];
+}
+function ringSegs(c, r, camPos) {
+  const out = [];
+  for (let i = 0; i < 40; i++) {
+    const a0 = (i / 40) * Math.PI * 2, a1 = ((i + 1) / 40) * Math.PI * 2;
+    out.push(c[0] + r * Math.cos(a0), c[1] + r * Math.sin(a0), c[2], c[0] + r * Math.cos(a1), c[1] + r * Math.sin(a1), c[2]);
+  }
+  return out;
+}
+function annotationsAt(t, camPos) {
+  const { b, lt } = locate(t);
+  const { ph, f } = phaseOf(b, lt);
+  const list = [];
+  if (!b.anns.length || ph === 'hold') return list;
+  const draw = ph === 'lead' ? G.ease(lt / Math.max(0.25, b.lead * 0.85)) : 1;
+  const fadeA = ph === 'lead' ? 1 : 1 - G.smooth((f - 0.5) / 0.4);
+  const fadeD = ph === 'lead' ? 1 : 1 - G.smooth((f - 0.75) / 0.25);
+  for (const a of b.anns) {
+    if (a.kind === 'dash') {
+      const segs = dashSegs(a.a, a.b, draw);
+      list.push({ segs, color: TOK.halo, width: 7, opacity: fadeD * 0.9, order: 0 });
+      list.push({ segs, color: TOK.annot, width: 3, opacity: fadeD, order: 1 });
+    } else if (a.kind === 'arrow') {
+      const { segs, n } = polySegs(a.pts, draw);
+      const head = arrowHead(a.pts, n, camPos, 0.055);
+      const all = segs.concat(head);
+      list.push({ segs: all, color: TOK.halo, width: 9, opacity: fadeA * 0.9, order: 2 });
+      list.push({ segs: all, color: TOK.annot, width: 3.6, opacity: fadeA, order: 3 });
+    } else if (a.kind === 'ring') {
+      const k = ph === 'lead' ? G.ease(lt / Math.max(0.2, b.lead)) : 1;
+      const pulse = 1 + 0.12 * Math.sin(Math.min(1, (ph === 'lead' ? lt / b.lead : 1)) * Math.PI);
+      const segs = ringSegs(a.c, 0.065 * k * pulse, camPos);
+      list.push({ segs, color: TOK.halo, width: 9, opacity: fadeA * 0.9, order: 4 });
+      list.push({ segs, color: TOK.ring, width: 4, opacity: fadeA, order: 5 });
+    }
+  }
+  return list;
+}
+
+// ---------------------------------------------------------------- captions
+const capSegs = [];
+for (const b of beats) {
+  const add = (t0, text, note) => {
+    const last = capSegs[capSegs.length - 1];
+    if (last && last.text === text && last.step === b.step && last.note === note) return;
+    capSegs.push({ t0, text, step: b.step, note });
+  };
+  add(b.t0, b.caption, b.note);
+  if (b.holdCaption) add(b.t0 + b.lead + b.dur + 0.2, b.holdCaption, '');
+}
+const segAt = (t) => {
+  let i = 0;
+  while (i + 1 < capSegs.length && capSegs[i + 1].t0 <= t) i++;
+  return i;
+};
+
+// ---------------------------------------------------------------- DOM
+const root = document.getElementById('stage');
+const canvas = document.getElementById('gl');
+const R = new Renderer(canvas, W, H);
+const el = (id) => document.getElementById(id);
+const capA = el('capA'), capB = el('capB'), stepA = el('stepA'), stepB = el('stepB'), noteA = el('noteA'), noteB = el('noteB'), flipIcon = el('flip');
+
+function setText(cur, prev, curText, prevText, age, rise = 18) {
+  const kin = G.ease((age - 0.16) / 0.32), kout = 1 - G.smooth(age / 0.16);
+  cur.textContent = curText;
+  cur.style.opacity = String(kin);
+  cur.style.transform = `translateY(${(1 - kin) * rise}px)`;
+  prev.textContent = prevText;
+  prev.style.opacity = prevText !== curText ? String(kout) : '0';
+  prev.style.transform = `translateY(${-(1 - kout) * rise * 0.6}px)`;
+}
+function captionsAt(t) {
+  const i = segAt(t), s = capSegs[i], p = capSegs[i - 1];
+  const age = t - s.t0;
+  setText(capA, capB, s.text, p ? p.text : '', i === 0 ? age + 1 : age);
+  // step label changes only when the step changes
+  let j = i;
+  while (j > 0 && capSegs[j - 1].step === s.step) j--;
+  const pj = capSegs[j - 1];
+  const label = s.step === 'Done' ? '' : s.step;
+  setText(stepA, stepB, label, pj ? (pj.step === 'Done' ? '' : pj.step) : '', j === 0 ? t + 1 : t - capSegs[j].t0, 10);
+  let k = i;
+  while (k > 0 && capSegs[k - 1].note === s.note) k--;
+  const pk = capSegs[k - 1];
+  setText(noteA, noteB, s.note || '', pk ? pk.note || '' : '', k === 0 ? t + 1 : t - capSegs[k].t0, 12);
+  // turn-over icon
+  const { b, lt } = locate(t);
+  let fo = 0, rot = 0;
+  if (b.op.kind === 'flip') {
+    const { ph, f } = phaseOf(b, lt);
+    fo = ph === 'lead' ? G.ease(lt / b.lead) : ph === 'move' ? 1 : 1 - G.smooth((lt - b.lead - b.dur) / 0.3);
+    rot = ph === 'lead' ? 0 : 180 * G.ease(f);
+  }
+  flipIcon.style.opacity = String(fo);
+  flipIcon.style.transform = `translate(-50%, -50%) rotateY(${rot}deg)`;
+}
+
+let lastGeo = null;
+function renderAt(t) {
+  const fr = frameAt(t);
+  const geo = geometry(fr);
+  const cam = camAt(t);
+  R.setCamera(cam.pos, cam.look);
+  R.setPaper(geo);
+  const { dark, faint } = edges(fr, geo, cam.pos);
+  R.setLines(dark, faint);
+  let zmin = Infinity, cx = 0, cy = 0, n = 0;
+  for (const g of geo) for (const v of g.verts) { zmin = Math.min(zmin, v[2]); cx += v[0]; cy += v[1]; n++; }
+  R.setFloor(zmin - 0.002, cx / n, cy / n);
+  R.setAnnotations(annotationsAt(t, cam.pos));
+  captionsAt(t);
+  R.render();
+  lastGeo = geo;
+}
+
+// ---------------------------------------------------------------- playback
+const params = new URLSearchParams(location.search);
+const capture = params.has('capture');
+let t = parseFloat(params.get('t') || '0') || 0;
+let playing = !capture && !params.has('t');
+let last = null;
+const stepStarts = [];
+for (const b of beats) if (!stepStarts.length || stepStarts[stepStarts.length - 1].step !== b.step) stepStarts.push({ step: b.step, t: b.t0 });
+
+function fitStage() {
+  const s = Math.min(window.innerWidth / W, window.innerHeight / H);
+  root.style.transform = `translate(-50%, -50%) scale(${s})`;
+}
+window.addEventListener('resize', fitStage);
+fitStage();
+
+const scrub = el('scrub');
+scrub.max = String(DURATION);
+scrub.addEventListener('input', () => { t = parseFloat(scrub.value); playing = false; renderAt(t); });
+function toggle() { playing = !playing; if (t >= DURATION - 0.01) t = 0; last = null; }
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') { e.preventDefault(); toggle(); }
+  if (e.code === 'ArrowRight' || e.code === 'ArrowLeft') {
+    const cur = stepStarts.findIndex((s, i) => t >= s.t && (i + 1 === stepStarts.length || t < stepStarts[i + 1].t));
+    const nx = Math.max(0, Math.min(stepStarts.length - 1, cur + (e.code === 'ArrowRight' ? 1 : -1)));
+    t = stepStarts[nx].t + (e.code === 'ArrowLeft' && t - stepStarts[cur].t > 1 ? 0 : 0);
+    if (e.code === 'ArrowLeft' && t - stepStarts[cur].t > 1) t = stepStarts[cur].t;
+    renderAt(t);
+  }
+});
+el('hit').addEventListener('click', toggle);
+
+function loop(now) {
+  if (playing) {
+    if (last !== null) t += Math.min(1 / 15, (now - last) / 1000);
+    if (t >= DURATION) { t = DURATION - 0.001; playing = false; }
+    renderAt(t);
+    scrub.value = String(t);
+  }
+  last = playing ? now : null;
+  requestAnimationFrame(loop);
+}
+
+window.__duration = DURATION;
+window.__frame = (tt) => { t = tt; renderAt(tt); return true; };
+window.__steps = stepStarts;
+renderAt(t);
+if (!capture) requestAnimationFrame(loop);
+console.log('duration', DURATION.toFixed(2), 'beats', beats.length);

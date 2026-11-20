@@ -83,7 +83,8 @@ export function buildSequence() {
   set('Step 7', 'Fold the lower edges of the top layer to the centre line.');
   let s1 = side('G1');
   set('Step 8', 'Fold the top triangle down over them.');
-  const topFold = (fg) => fold([{ P: [0, E.YK], D: [1, 0], sel: (p) => !p.tag.inside, side: 1, dir: "v" }], { dur: fg === "G1" ? 1.6 : 1.3 });
+  // the whole top folds (the layers are joined at the centre line), but only the front flap shows a crease
+  const topFold = (fg) => fold([{ P: [0, E.YK], D: [1, 0], sel: (p) => !p.tag.inside && !(p.tag.grp !== fg && (p.tag.facet === 'b' || p.tag.facet === 'c')), side: 1, dir: 'v', silent: (p) => p.tag.grp !== fg }], { dur: fg === 'G1' ? 1.6 : 1.3 });
   let tf = topFold('G1');
   set('Step 9', 'Open these three folds again.');
   unfold(tf, { dur: 1.2, lead: 0.5, hold: 0.15 });

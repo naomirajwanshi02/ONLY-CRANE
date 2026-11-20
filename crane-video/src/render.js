@@ -76,15 +76,16 @@ export class Renderer {
     key.shadow.normalBias = 0.012;
     key.shadow.radius = 4;
     scene.add(key, key.target);
-    const fill = new THREE.DirectionalLight(0xd9e4ff, 0.55);
+    const fill = new THREE.DirectionalLight(0xd9e4ff, 0.85);
     fill.position.set(3.5, -1.5, 3);
     const rim = new THREE.DirectionalLight(0xffcf9a, 0.9);
     rim.position.set(1.5, 4.5, 2.2);
     scene.add(fill, rim);
 
     // floor that only catches shadows
-    const floor = (this.floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ color: 0x3a2412, opacity: 0.2 })));
+    const floor = (this.floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.ShadowMaterial({ color: 0x3a2412, opacity: 0.15, depthWrite: false })));
     floor.receiveShadow = true;
+    floor.renderOrder = -1;
     scene.add(floor);
 
     // paper
@@ -97,12 +98,12 @@ export class Renderer {
     const mat = (color, side) =>
       new THREE.MeshStandardMaterial({
         color, side, map: tex, bumpMap: bump, bumpScale: 0.6, roughness: 0.86, metalness: 0,
-        envMapIntensity: 0.35, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+        envMapIntensity: 0.5, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
       });
     this.geo = new THREE.BufferGeometry();
     this.front = new THREE.Mesh(this.geo, mat(TOK.colour, THREE.FrontSide));
     this.back = new THREE.Mesh(this.geo, mat(TOK.white, THREE.BackSide));
-    for (const m of [this.front, this.back]) { m.castShadow = true; m.receiveShadow = true; m.frustumCulled = false; scene.add(m); }
+    for (const m of [this.front, this.back]) { m.castShadow = true; m.receiveShadow = false; m.frustumCulled = false; scene.add(m); }
 
     // ink lines on the paper
     const lm = (color, width, opacity) => {

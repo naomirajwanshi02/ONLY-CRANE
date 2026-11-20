@@ -14,6 +14,8 @@ const beats = buildSequence();
 let T = 0;
 for (const b of beats) { b.t0 = T; b.t1 = T + b.lead + b.dur + b.hold; T = b.t1; }
 const DURATION = T;
+// from the square base on, every face that shows is the colour side
+const T_ORANGE = beats.find((b) => b.step === 'Step 6').t0;
 
 // ---------------------------------------------------------------- per-state caches
 const hCache = new WeakMap();
@@ -92,15 +94,43 @@ function locate(t) {
   return { b: beats[lo], i: lo, lt: t - beats[lo].t0 };
 }
 function flatFrame(state) {
-  return { pieces: state, poses: state.map(E.flatPose), h: heights(state), gR: null };
+  const h = heights(state);
+  const off = new Map(state.map((p) => [p.id, [0, 0, (h.get(p.id) || 0) * TH]]));
+  return { pieces: state, poses: state.map(E.flatPose), off };
+}
+// Layer offsets travel with each moving piece (so a turning stack keeps its spacing), then settle
+// onto the stacking of the end state.
+function opInfo(op) {
+  if (op._info) return op._info;
+  const hp = heights(op.work), hq = heights(op.post);
+  const flat = new Map(op.work.map((p) => [p.id, E.flatPose(p)]));
+  let hB = Infinity;
+  for (const p of op.work) if (op.moving.has(p.id)) hB = Math.min(hB, hp.get(p.id) || 0);
+  if (!isFinite(hB)) hB = 0;
+  const end = op.pose(1);
+  const sEnd = new Map(op.work.map((p, i) => [p.id, Math.sign(G.mmul(end[i].R, G.mT(flat.get(p.id).R))[8]) || 1]));
+  return (op._info = { hp, hq, flat, hB, sEnd });
 }
 function opFrame(b, u, w) {
   const op = b.op;
-  const hp = heights(op.work), hq = heights(op.post);
-  const h = new Map();
-  for (const p of op.work) h.set(p.id, G.lerp(hp.get(p.id) ?? 0, hq.get(p.id) ?? hp.get(p.id) ?? 0, w));
-  if (op.kind === 'finale') { const k = 1 - 0.6 * G.ease(G.win(u, 0, 0.6)); for (const [id, v] of h) h.set(id, v * k); }
-  return { pieces: op.work, poses: op.pose(u), h, gR: op.globalR ? op.globalR(u) : null };
+  const I = opInfo(op);
+  const poses = op.pose(u);
+  const off = new Map();
+  const k = op.kind === 'finale' ? 1 - 0.6 * G.ease(G.win(u, 0, 0.6)) : 1;
+  op.work.forEach((p, i) => {
+    const hp = I.hp.get(p.id) || 0, hq = I.hq.get(p.id) ?? hp;
+    if (op.kind === 'finale') {
+      off.set(p.id, G.mv(G.mmul(poses[i].R, G.mT(I.flat.get(p.id).R)), [0, 0, hp * k * TH]));
+    } else if (op.moving.has(p.id)) {
+      const Rm = G.mmul(poses[i].R, G.mT(I.flat.get(p.id).R));
+      const rel = (hp - I.hB) * TH;
+      const z = G.lerp(I.hB * TH, hq * TH - I.sEnd.get(p.id) * rel, w);
+      off.set(p.id, G.add(G.mv(Rm, [0, 0, rel]), [0, 0, z]));
+    } else {
+      off.set(p.id, [0, 0, G.lerp(hp, hq, w) * TH]);
+    }
+  });
+  return { pieces: op.work, poses, off };
 }
 function phaseOf(b, lt) {
   if (lt < b.lead) return { ph: 'lead', f: 0 };
@@ -128,23 +158,49 @@ function geometry(fr) {
   const out = [];
   fr.pieces.forEach((p, i) => {
     const P = fr.poses[i];
-    const hz = (fr.h.get(p.id) || 0) * TH;
-    const off = fr.gR ? G.mv(fr.gR, [0, 0, hz]) : [0, 0, hz];
+    const off = fr.off.get(p.id);
     const verts = p.poly.map((v) => G.add(G.apply(P, [v[0], v[1], 0]), off));
     out.push({ id: p.id, p, P, off, verts, uv: p.poly.map((v) => [v[0] * 0.8 + 0.5, v[1] * 0.8 + 0.5]), normal: G.mv(P.R, [0, 0, 1]) });
   });
   return out;
 }
 const samePose = (A, B) => {
-  for (let k = 0; k < 9; k++) if (Math.abs(A.R[k] - B.R[k]) > 1e-7) return false;
-  for (let k = 0; k < 3; k++) if (Math.abs(A.T[k] - B.T[k]) > 1e-7) return false;
+  for (let k = 0; k < 9; k++) if (Math.abs(A.R[k] - B.R[k]) > 0.03) return false;
+  for (let k = 0; k < 3; k++) if (Math.abs(A.T[k] - B.T[k]) > 0.03) return false;
   return true;
 };
+// flat pieces that hide what lies under them (lines on lower layers must not bleed through)
+function coverers(geo) {
+  const out = [];
+  for (const g of geo) {
+    if (Math.abs(Math.abs(g.normal[2]) - 1) > 1e-6) continue;
+    let poly = g.verts.map((v) => [v[0], v[1]]);
+    if (G.area(poly) < 0) poly = poly.slice().reverse();
+    out.push({ id: g.id, z: g.verts[0][2], poly, bb: G.bbox(poly) });
+  }
+  return out;
+}
+function hidden(cov, selfId, m, z) {
+  for (const c of cov) {
+    if (c.id === selfId || c.z <= z + TH * 0.5) continue;
+    if (m[0] < c.bb[0] || m[0] > c.bb[2] || m[1] < c.bb[1] || m[1] > c.bb[3]) continue;
+    let inside = true;
+    for (let i = 0; i < c.poly.length && inside; i++) {
+      const a = c.poly[i], b = c.poly[(i + 1) % c.poly.length];
+      const ex = b[0] - a[0], ey = b[1] - a[1], L = Math.hypot(ex, ey);
+      if ((ex * (m[1] - a[1]) - ey * (m[0] - a[0])) / L < 2e-4) inside = false;
+    }
+    if (inside) return true;
+  }
+  return false;
+}
 function edges(fr, geo, camPos) {
   const adj = adjacency(fr.pieces);
   const byId = new Map(geo.map((g) => [g.id, g]));
   const dark = [], faint = [];
+  const cov = coverers(geo);
   for (const g of geo) {
+    const flatG = Math.abs(Math.abs(g.normal[2]) - 1) < 1e-6;
     const c = g.verts[0];
     const toCam = G.sub(camPos, c);
     const s = G.dot(g.normal, toCam) >= 0 ? 1 : -1;
@@ -153,15 +209,23 @@ function edges(fr, geo, camPos) {
       const pa = [a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0, 0];
       const pb = [a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1, 0];
       const A = G.add(G.add(G.apply(g.P, pa), g.off), lift), B = G.add(G.add(G.apply(g.P, pb), g.off), lift);
+      if (flatG) {
+        const m = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+        if (hidden(cov, g.id, m, g.verts[0][2])) continue;
+      }
       let isCrease = false;
       if (nb >= 0) {
         const n = byId.get(nb);
         if (n && samePose(n.P, g.P)) {
           isCrease = true;
           if (nb < g.id) continue; // draw once
+          if (E.isSilent(g.p, [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2])) continue;
         }
       }
-      (isCrease ? faint : dark).push(...A, ...B);
+      // short pieces keep the line depth exact along long creases under perspective
+      const arr = isCrease ? faint : dark;
+      const nseg = Math.max(1, Math.ceil(G.len(G.sub(B, A)) / 0.06));
+      for (let q = 0; q < nseg; q++) arr.push(...G.lerp3(A, B, q / nseg), ...G.lerp3(A, B, (q + 1) / nseg));
     }
   }
   return { dark, faint };
@@ -354,6 +418,7 @@ function dashSegs(a, b, prog) {
 }
 function polySegs(pts, prog) {
   const out = [];
+  if (prog < 0.03) return { segs: out, n: 0 };
   const n = Math.max(1, Math.floor((pts.length - 1) * prog));
   for (let i = 0; i < n; i++) out.push(...pts[i], ...pts[i + 1]);
   return { segs: out, n };
@@ -392,7 +457,7 @@ function annotationsAt(t, camPos) {
       list.push({ segs, color: TOK.annot, width: 3, opacity: fadeD, order: 1 });
     } else if (a.kind === 'arrow') {
       const { segs, n } = polySegs(a.pts, draw);
-      const head = arrowHead(a.pts, n, camPos, 0.055);
+      const head = draw > 0.15 ? arrowHead(a.pts, n, camPos, 0.055 * G.smooth((draw - 0.15) / 0.2)) : [];
       const all = segs.concat(head);
       list.push({ segs: all, color: TOK.halo, width: 9, opacity: fadeA * 0.9, order: 2 });
       list.push({ segs: all, color: TOK.annot, width: 3.6, opacity: fadeA, order: 3 });
@@ -432,7 +497,7 @@ const el = (id) => document.getElementById(id);
 const capA = el('capA'), capB = el('capB'), stepA = el('stepA'), stepB = el('stepB'), noteA = el('noteA'), noteB = el('noteB'), flipIcon = el('flip');
 
 function setText(cur, prev, curText, prevText, age, rise = 18) {
-  const kin = G.ease((age - 0.16) / 0.32), kout = 1 - G.smooth(age / 0.16);
+  const kin = G.ease((age - 0.08) / 0.32), kout = 1 - G.smooth(age / 0.16);
   cur.textContent = curText;
   cur.style.opacity = String(kin);
   cur.style.transform = `translateY(${(1 - kin) * rise}px)`;
@@ -477,7 +542,8 @@ function renderAt(t) {
   R.setLines(dark, faint);
   let zmin = Infinity, cx = 0, cy = 0, n = 0;
   for (const g of geo) for (const v of g.verts) { zmin = Math.min(zmin, v[2]); cx += v[0]; cy += v[1]; n++; }
-  R.setFloor(zmin - 0.002, cx / n, cy / n);
+  R.setFloor(zmin - 0.002, 0, 0);
+  R.back.material.color.set(t >= T_ORANGE ? TOK.colour : TOK.white);
   R.setAnnotations(annotationsAt(t, cam.pos));
   captionsAt(t);
   R.render();

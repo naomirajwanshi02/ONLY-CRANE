@@ -48,18 +48,36 @@ export function poseToFlat(pc, pose) {
 }
 
 // Split a piece by a world line (P, D). Returns {left, right} (either may be null).
-export function splitPiece(pc, P, D) {
+export function splitPiece(pc, P, D, silentNew = false) {
   const p0 = inv2(pc, P);
   const nW = [-D[1], D[0]]; // left normal
   const nC = [pc.A[0] * nW[0] + pc.A[2] * nW[1], pc.A[1] * nW[0] + pc.A[3] * nW[1]];
   const [neg, pos] = G.splitPoly(pc.poly, p0, nC);
   if (neg && pos) {
-    return {
-      left: piece(pos, pc.A, pc.t, pc.L, pc.tag, pc.id),
-      right: piece(neg, pc.A, pc.t, pc.L, pc.tag, pc.id),
-    };
+    const left = piece(pos, pc.A, pc.t, pc.L, pc.tag, pc.id);
+    const right = piece(neg, pc.A, pc.t, pc.L, pc.tag, pc.id);
+    const sil = (pc.silent || []).slice();
+    if (silentNew) sil.push({ p0, n: nC });
+    if (sil.length) { left.silent = sil; right.silent = sil; }
+    return { left, right };
   }
   return pos ? { left: pc, right: null } : { left: null, right: pc };
+}
+
+// Silent creases lie on the paper but are not drawn until a later fold along the same line reveals them.
+function reveal(pc, P, D) {
+  const p0 = inv2(pc, P), q = inv2(pc, [P[0] + D[0], P[1] + D[1]]);
+  const keep = pc.silent.filter((l) => {
+    const d0 = (p0[0] - l.p0[0]) * l.n[0] + (p0[1] - l.p0[1]) * l.n[1];
+    const d1 = (q[0] - l.p0[0]) * l.n[0] + (q[1] - l.p0[1]) * l.n[1];
+    return Math.abs(d0) > 1e-7 || Math.abs(d1) > 1e-7;
+  });
+  if (keep.length === pc.silent.length) return pc;
+  return { ...pc, silent: keep.length ? keep : undefined };
+}
+export function isSilent(pc, cp) {
+  if (!pc.silent) return false;
+  return pc.silent.some((l) => Math.abs((cp[0] - l.p0[0]) * l.n[0] + (cp[1] - l.p0[1]) * l.n[1]) < 1e-7);
 }
 
 // Dense-rank the stacking values so they stay small integers.
@@ -102,9 +120,10 @@ export function foldOp(state, parts) {
   for (let k = 0; k < parts.length; k++) {
     const pt = parts[k];
     const next = [];
-    for (const pc of work) {
+    for (let pc of work) {
       if (moveOf.has(pc.id) || !pt.sel(pc)) { next.push(pc); continue; }
-      const { left, right } = splitPiece(pc, pt.P, pt.D);
+      if (pc.silent) pc = reveal(pc, pt.P, pt.D);
+      const { left, right } = splitPiece(pc, pt.P, pt.D, !!(pt.silent && pt.silent(pc)));
       const mv = pt.side > 0 ? left : right, st = pt.side > 0 ? right : left;
       if (st) next.push(st);
       if (mv) { next.push(mv); moveOf.set(mv.id, k); }

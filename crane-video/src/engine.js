@@ -437,29 +437,70 @@ export function reverseOp(state, spec) {
   let rho = Math.atan2(dNew[1], dNew[0]) - Math.atan2(dOld[1], dOld[0]);
   while (rho > Math.PI) rho -= 2 * Math.PI;
   while (rho < -Math.PI) rho += 2 * Math.PI;
-  const P3 = [P[0], P[1], 0];
+  // The point stays joined to the body along the pre-crease: every tip point swings about the pivot
+  // by its own angle (0 on the crease, rho on the spine), so the paper bends a little instead of
+  // splitting. The two layers of the point part like a book while it travels up inside, and (for the
+  // neck and tail) the two halves of the model open about the centre line and close again.
   const flats = new Map(work.map((p) => [p.id, flatPose(p)]));
-  const tw = spec.twist || ((u) => G.ease(G.win(u, 0, 0.92)));
-  const sw = spec.swing || ((u) => G.ease(G.win(u, 0.04, 1)));
-  const motionFor = (p, u) => {
-    const isF = (p.tag.half || p.tag.grp) === front;
-    const twist = G.rotAbout(P3, dOld, (isF ? zSign : -zSign) * Math.PI * tw(u));
-    const swing = G.rotAbout(P3, [0, 0, 1], rho * sw(u));
-    return G.compose(swing, twist);
+  const isFront = (p) => (p.tag.half || p.tag.grp) === front;
+  const thOf = (q) => {
+    const x = q[0] - P[0], y = q[1] - P[1];
+    return Math.atan2(D2[0] * y - D2[1] * x, D2[0] * x + D2[1] * y);
   };
-  const pose = (u) => work.map((p) => (tip.has(p.id) ? G.compose(motionFor(p, Math.min(u, 1 - 1e-6)), flats.get(p.id)) : flats.get(p.id)));
+  const thSpine = thOf([P[0] + dOld[0], P[1] + dOld[1]]);
+  const dmax = -2 * thSpine; // swing of the spine (same as rho)
+  const op = spec.open || null;
+  const sw = (u) => G.ease(G.win(u, op ? 0.12 : 0, op ? 0.9 : 1));
+  const psiOf = (u) => (op ? op.max * G.smooth(G.win(u, 0, 0.22)) * (1 - G.smooth(G.win(u, 0.78, 1))) : 0);
+  const bulge = spec.bulge ?? 0.55;
+  const axP = op ? [op.P[0], op.P[1], 0] : null, axD = op ? [op.D[0], op.D[1], 0] : null;
+  const sideOf = (q) => Math.sign(axD[0] * (q[1] - axP[1]) - axD[1] * (q[0] - axP[0])) || 1;
+  const tipSideAx = op ? sideOf([cT[0], cT[1]]) : 1;
+  // opening pieces: same side of the centre line as the point, not the point itself
+  const opens = new Set();
+  if (op) for (const p of work) if (!tip.has(p.id) && op.sel(p) && sideOf(wcent(p)) === tipSideAx) opens.add(p.id);
+  const openPose = (p, u, k = 1) => {
+    const sg = (op.front(p) ? 1 : -1) * tipSideAx;
+    return G.rotAbout(axP, axD, sg * psiOf(u) * k);
+  };
+  const tipPoint = (p, cp, u) => {
+    const w = w2(p, cp);
+    const th = thOf(w);
+    const del = -2 * th;
+    const g = sw(u);
+    const R = G.rotAxis([0, 0, 1], del * g);
+    const v = G.mv(R, [w[0] - P[0], w[1] - P[1], 0]);
+    let q = [P[0] + v[0], P[1] + v[1], 0];
+    // layers part like a book: zero on the crease and on the spine line itself
+    const dist = Math.abs(dOld[0] * (w[1] - P[1]) - dOld[1] * (w[0] - P[0]));
+    const frac = Math.min(1, Math.abs(del / dmax));
+    q[2] += (isFront(p) ? 1 : -1) * bulge * Math.sin(Math.PI * g) * dist * frac;
+    if (op) q = G.apply(openPose(p, u, 1 - frac), q);
+    return q;
+  };
+  const pose = (u) => work.map((p) => {
+    if (tip.has(p.id)) return u >= 1 ? flatPose(reflect(P, D2)(p)) : flats.get(p.id);
+    if (opens.has(p.id)) return G.compose(openPose(p, u), flats.get(p.id));
+    return flats.get(p.id);
+  });
+  const vmap = (u) => {
+    const m = new Map();
+    if (u >= 1) return m;
+    for (const p of work) if (tip.has(p.id)) m.set(p.id, (cp) => tipPoint(p, cp, u));
+    return m;
+  };
   // end: reflection over the reverse-fold line; the tip goes between band.lower and band.upper
   const ref = reflect(P, D2);
   const others = work.filter((p) => !tip.has(p.id));
   const lowSet = others.filter(spec.band.lower), upSet = others.filter(spec.band.upper);
   const lo = lowSet.length ? maxL(lowSet) : minL(others) - 1;
   const hi = upSet.length ? minL(upSet) : lo + 1;
-  // twist turns each half over: the back half ends up on top of the front half, orders reversed
+  // inside the body: the front half of the point stays in front of the back half; each half is turned over
   const tipS = T.slice().sort((a, b) => a.L - b.L);
   const n = tipS.length;
   const ordered = [
-    ...tipS.filter((p) => (p.tag.half || p.tag.grp) === front).reverse(),
     ...tipS.filter((p) => (p.tag.half || p.tag.grp) !== front).reverse(),
+    ...tipS.filter((p) => (p.tag.half || p.tag.grp) === front).reverse(),
   ];
   const newL = new Map(ordered.map((p, i) => [p.id, lo + ((hi - lo) * (i + 1)) / (n + 1)]));
   if (hi <= lo) console.warn('reverse fold band is empty', lo, hi);
@@ -470,7 +511,7 @@ export function reverseOp(state, spec) {
       return { ...q, L: newL.get(p.id), tag: { ...q.tag, inside: spec.name || 'tip', half: q.tag.half || q.tag.grp } };
     })
   );
-  return { kind: 'reverse', work, post, pose, moving: tip, line: { P, D: D2 }, tipSide };
+  return { kind: 'reverse', work, post, pose, vmap, moving: new Set([...tip, ...opens]), tip, line: { P, D: D2 }, tipSide };
 }
 
 // FINALE: wings out and the crane stands. wings: {line y, frontIds, backIds}, angle for the wings.

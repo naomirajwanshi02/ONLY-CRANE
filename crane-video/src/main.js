@@ -115,11 +115,14 @@ function opFrame(b, u, w) {
   const op = b.op;
   const I = opInfo(op);
   const poses = op.pose(u);
+  const vm = op.vmap ? op.vmap(u) : null;
   const off = new Map();
   const k = op.kind === 'finale' ? 1 - 0.6 * G.ease(G.win(u, 0, 0.6)) : 1;
   op.work.forEach((p, i) => {
     const hp = I.hp.get(p.id) || 0, hq = I.hq.get(p.id) ?? hp;
-    if (op.kind === 'finale') {
+    if (vm && vm.has(p.id)) {
+      off.set(p.id, [0, 0, G.lerp(hp, hq, w) * TH]);
+    } else if (op.kind === 'finale') {
       off.set(p.id, G.mv(G.mmul(poses[i].R, G.mT(I.flat.get(p.id).R)), [0, 0, hp * k * TH]));
     } else if (op.moving.has(p.id)) {
       const Rm = G.mmul(poses[i].R, G.mT(I.flat.get(p.id).R));
@@ -130,7 +133,7 @@ function opFrame(b, u, w) {
       off.set(p.id, [0, 0, G.lerp(hp, hq, w) * TH]);
     }
   });
-  return { pieces: op.work, poses, off };
+  return { pieces: op.work, poses, off, vm };
 }
 function phaseOf(b, lt) {
   if (lt < b.lead) return { ph: 'lead', f: 0 };
@@ -159,8 +162,19 @@ function geometry(fr) {
   fr.pieces.forEach((p, i) => {
     const P = fr.poses[i];
     const off = fr.off.get(p.id);
-    const verts = p.poly.map((v) => G.add(G.apply(P, [v[0], v[1], 0]), off));
-    out.push({ id: p.id, p, P, off, verts, uv: p.poly.map((v) => [v[0] * 0.8 + 0.5, v[1] * 0.8 + 0.5]), normal: G.mv(P.R, [0, 0, 1]) });
+    const f = fr.vm && fr.vm.get(p.id);
+    const map = f ? (cp) => G.add(f(cp), off) : (cp) => G.add(G.apply(P, [cp[0], cp[1], 0]), off);
+    const verts = p.poly.map((v) => map(v));
+    let normal;
+    if (f) {
+      let n = [0, 0, 0];
+      for (let j = 0; j < verts.length; j++) {
+        const a = verts[j], b = verts[(j + 1) % verts.length];
+        n = G.add(n, [(a[1] - b[1]) * (a[2] + b[2]), (a[2] - b[2]) * (a[0] + b[0]), (a[0] - b[0]) * (a[1] + b[1])]);
+      }
+      normal = G.norm(n);
+    } else normal = G.mv(P.R, [0, 0, 1]);
+    out.push({ id: p.id, p, P, off, map, bent: !!f, verts, uv: p.poly.map((v) => [v[0] * 0.8 + 0.5, v[1] * 0.8 + 0.5]), normal });
   });
   return out;
 }
@@ -169,28 +183,39 @@ const samePose = (A, B) => {
   for (let k = 0; k < 3; k++) if (Math.abs(A.T[k] - B.T[k]) > 0.03) return false;
   return true;
 };
-// flat pieces that hide what lies under them (lines on lower layers must not bleed through)
-function coverers(geo) {
-  const out = [];
-  for (const g of geo) {
-    if (Math.abs(Math.abs(g.normal[2]) - 1) > 1e-6) continue;
-    let poly = g.verts.map((v) => [v[0], v[1]]);
-    if (G.area(poly) < 0) poly = poly.slice().reverse();
-    out.push({ id: g.id, z: g.verts[0][2], poly, bb: G.bbox(poly) });
-  }
-  return out;
+// Lines on paper that is covered (by any layer, at any moment) are not drawn: a ray from the camera
+// to the line must not hit other paper first.
+function occluders(geo) {
+  return geo.map((g) => {
+    let c = [0, 0, 0];
+    for (const v of g.verts) c = G.add(c, v);
+    c = G.scale(c, 1 / g.verts.length);
+    let r = 0;
+    for (const v of g.verts) r = Math.max(r, G.len(G.sub(v, c)));
+    const tris = [];
+    for (let j = 1; j < g.verts.length - 1; j++) tris.push([g.verts[0], g.verts[j], g.verts[j + 1]]);
+    return { id: g.id, c, r, tris };
+  });
 }
-function hidden(cov, selfId, m, z) {
-  for (const c of cov) {
-    if (c.id === selfId || c.z <= z + TH * 0.5) continue;
-    if (m[0] < c.bb[0] || m[0] > c.bb[2] || m[1] < c.bb[1] || m[1] > c.bb[3]) continue;
-    let inside = true;
-    for (let i = 0; i < c.poly.length && inside; i++) {
-      const a = c.poly[i], b = c.poly[(i + 1) % c.poly.length];
-      const ex = b[0] - a[0], ey = b[1] - a[1], L = Math.hypot(ex, ey);
-      if ((ex * (m[1] - a[1]) - ey * (m[0] - a[0])) / L < 2e-4) inside = false;
+function occluded(occ, selfId, cam, M) {
+  const d = G.sub(M, cam), L = G.len(d);
+  const dir = G.scale(d, 1 / L);
+  const tmax = L - 0.0009;
+  for (const o of occ) {
+    if (o.id === selfId) continue;
+    const oc = G.sub(o.c, cam), along = G.dot(oc, dir);
+    if (along - o.r > tmax) continue;
+    if (G.len(G.sub(oc, G.scale(dir, along))) > o.r) continue;
+    for (const [v0, v1, v2] of o.tris) {
+      const e1 = G.sub(v1, v0), e2 = G.sub(v2, v0), pv = G.cross(dir, e2), det = G.dot(e1, pv);
+      if (Math.abs(det) < 1e-12) continue;
+      const tv = G.sub(cam, v0), uu = G.dot(tv, pv) / det;
+      if (uu < 1e-4 || uu > 1 - 1e-4) continue;
+      const qv = G.cross(tv, e1), vv = G.dot(dir, qv) / det;
+      if (vv < 1e-4 || uu + vv > 1 - 1e-4) continue;
+      const t = G.dot(e2, qv) / det;
+      if (t > 0 && t < tmax) return true;
     }
-    if (inside) return true;
   }
   return false;
 }
@@ -198,9 +223,8 @@ function edges(fr, geo, camPos) {
   const adj = adjacency(fr.pieces);
   const byId = new Map(geo.map((g) => [g.id, g]));
   const dark = [], faint = [];
-  const cov = coverers(geo);
+  const occ = occluders(geo);
   for (const g of geo) {
-    const flatG = Math.abs(Math.abs(g.normal[2]) - 1) < 1e-6;
     const c = g.verts[0];
     const toCam = G.sub(camPos, c);
     const s = G.dot(g.normal, toCam) >= 0 ? 1 : -1;
@@ -208,15 +232,12 @@ function edges(fr, geo, camPos) {
     for (const [a, b, t0, t1, nb] of adj.get(g.id)) {
       const pa = [a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0, 0];
       const pb = [a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1, 0];
-      const A = G.add(G.add(G.apply(g.P, pa), g.off), lift), B = G.add(G.add(G.apply(g.P, pb), g.off), lift);
-      if (flatG) {
-        const m = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
-        if (hidden(cov, g.id, m, g.verts[0][2])) continue;
-      }
+      const A = G.add(g.map(pa), lift), B = G.add(g.map(pb), lift);
       let isCrease = false;
       if (nb >= 0) {
         const n = byId.get(nb);
-        if (n && samePose(n.P, g.P)) {
+        const same = n && (n.bent || g.bent ? G.dot(n.normal, g.normal) > 0.996 : samePose(n.P, g.P));
+        if (same) {
           isCrease = true;
           if (nb < g.id) continue; // draw once
           if (E.isSilent(g.p, [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2])) continue;
@@ -225,7 +246,11 @@ function edges(fr, geo, camPos) {
       // short pieces keep the line depth exact along long creases under perspective
       const arr = isCrease ? faint : dark;
       const nseg = Math.max(1, Math.ceil(G.len(G.sub(B, A)) / 0.06));
-      for (let q = 0; q < nseg; q++) arr.push(...G.lerp3(A, B, q / nseg), ...G.lerp3(A, B, (q + 1) / nseg));
+      for (let q = 0; q < nseg; q++) {
+        const a0 = G.lerp3(A, B, q / nseg), a1 = G.lerp3(A, B, (q + 1) / nseg);
+        if (occluded(occ, g.id, camPos, G.lerp3(a0, a1, 0.5))) continue;
+        arr.push(...a0, ...a1);
+      }
     }
   }
   return { dark, faint };
@@ -316,7 +341,8 @@ function pointPath(op, id, cp, u0, u1, lift, toward) {
   const pts = [];
   for (let i = 0; i <= 48; i++) {
     const u = u0 + (u1 - u0) * (i / 48);
-    let q = G.apply(op.pose(u)[idx], [cp[0], cp[1], 0]);
+    const vm = op.vmap ? op.vmap(u) : null;
+    let q = vm && vm.has(id) ? vm.get(id)(cp) : G.apply(op.pose(u)[idx], [cp[0], cp[1], 0]);
     if (toward) q = G.add(toward.c, G.scale(G.sub(q, toward.c), toward.k));
     q = G.add(q, [0, 0, lift + 0.06 * Math.sin(Math.PI * (i / 48))]);
     pts.push(q);
@@ -390,11 +416,11 @@ for (const b of beats) {
     ring([0, -1]);
   } else if (op.kind === 'reverse') {
     const { P, D } = op.line;
-    const ext = lineExtent(op.work, P, D, (p) => op.moving.has(p.id));
+    const ext = lineExtent(op.work, P, D, (p) => op.tip.has(p.id));
     if (ext) dash(P, D, [ext[0] - 0.03, ext[1] + 0.03]);
     let best = null, bd = -1;
     for (const p of op.work) {
-      if (!op.moving.has(p.id)) continue;
+      if (!op.tip.has(p.id)) continue;
       for (const v of p.poly) {
         const w = E.w2(p, v);
         const d = Math.hypot(w[0] - P[0], w[1] - P[1]);

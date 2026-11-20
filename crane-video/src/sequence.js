@@ -135,18 +135,23 @@ export function buildSequence() {
     const fg = fgNow();
     return { lower: (p) => p.tag.grp !== fg && !p.tag.inside, upper: (p) => p.tag.grp === fg && !p.tag.inside };
   };
+  // the two halves of the model part along the centre line while a point goes up inside
+  const openSpec = () => {
+    const fg = fgNow();
+    return { P: [0, 0], D: [0, 1], max: 24 * deg, sel: (p) => !p.tag.inside, front: (p) => p.tag.grp === fg };
+  };
   set('Step 18', 'Fold the right point up and crease it well, then open.');
   const ldR = lineDir(dR);
   const tipSideR = -Math.sign(ldR[0] * (-1 - P[1]) - ldR[1] * (0 - P[0])) || 1; // side that holds the tip
   f = fold([{ P, D: [ldR[0], ldR[1]], sel: (p) => p.tag.corner === 'R' && !p.tag.inside, side: -tipSideR, dir: 'v' }], { dur: 1.6 });
   unfold(f, { dur: 1.2, lead: 0.2, hold: 0.4 });
   set('Step 19', 'Open the layers and push the point up between them.');
-  push(E.reverseOp(state, { name: 'tail', sel: (p) => p.tag.corner === 'R' && !p.tag.inside, P, dOld, dNew: dR, band: band() }), {
-    dur: 3.2, lead: 0.6, hold: 0.5, ann: { reverse: true }, cam: { tilt: true },
+  push(E.reverseOp(state, { name: 'tail', sel: (p) => p.tag.corner === 'R' && !p.tag.inside, P, dOld, dNew: dR, band: band(), open: openSpec() }), {
+    dur: 4.2, lead: 0.6, hold: 0.5, ann: { reverse: true }, cam: { tilt: true },
   });
   set('Step 20', 'Do the same with the other point.');
-  push(E.reverseOp(state, { name: 'neck', sel: (p) => p.tag.corner === 'L' && !p.tag.inside, P, dOld, dNew: dL, band: band() }), {
-    dur: 2.8, lead: 0.7, hold: 0.5, ann: { reverse: true }, cam: { tilt: true },
+  push(E.reverseOp(state, { name: 'neck', sel: (p) => p.tag.corner === 'L' && !p.tag.inside, P, dOld, dNew: dL, band: band(), open: openSpec() }), {
+    dur: 3.6, lead: 0.7, hold: 0.5, ann: { reverse: true }, cam: { tilt: true },
   });
   set('Step 21', 'These two points become the neck and the tail.');
   hold(1.6);

@@ -14,8 +14,6 @@ const beats = buildSequence();
 let T = 0;
 for (const b of beats) { b.t0 = T; b.t1 = T + b.lead + b.dur + b.hold; T = b.t1; }
 const DURATION = T;
-// from the square base on, every face that shows is the colour side
-const T_ORANGE = beats.find((b) => b.step === 'Step 6').t0;
 
 // ---------------------------------------------------------------- per-state caches
 const hCache = new WeakMap();
@@ -569,7 +567,6 @@ function renderAt(t) {
   let zmin = Infinity, cx = 0, cy = 0, n = 0;
   for (const g of geo) for (const v of g.verts) { zmin = Math.min(zmin, v[2]); cx += v[0]; cy += v[1]; n++; }
   R.setFloor(zmin - 0.002, 0, 0);
-  R.back.material.color.set(t >= T_ORANGE ? TOK.colour : TOK.white);
   R.setAnnotations(annotationsAt(t, cam.pos));
   captionsAt(t);
   R.render();

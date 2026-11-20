@@ -40,9 +40,9 @@ export function buildSequence() {
   const hold = (t, o) => push(E.holdOp(state), { dur: 0, lead: 0, hold: t, ...o });
   const all = () => true;
 
-  // ---- Step 1: colour side up, fold in half both ways (corner to corner) and open
-  set('Step 1', 'Colour side up. Fold in half corner to corner, then open.');
-  hold(1.2, { caption: 'Start with the colour side up.' });
+  // ---- Step 1: fold in half both ways (corner to corner) and open
+  set('Step 1', 'Fold in half corner to corner, then open.');
+  hold(1.2, { caption: 'Start with a square of paper.' });
   let f = fold([{ P: [0, 0], D: [0, 1], sel: all, side: 1, dir: 'v' }], { dur: 1.5 });
   unfold(f, { dur: 1.1, lead: 0.15, hold: 0.25 });
   f = fold([{ P: [0, 0], D: [1, 0], sel: all, side: 1, dir: 'v' }], { dur: 1.5, lead: 0.5, caption: 'Now fold it in half the other way, then open.' });

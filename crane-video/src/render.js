@@ -102,7 +102,7 @@ export class Renderer {
       });
     this.geo = new THREE.BufferGeometry();
     this.front = new THREE.Mesh(this.geo, mat(TOK.colour, THREE.FrontSide));
-    this.back = new THREE.Mesh(this.geo, mat(TOK.white, THREE.BackSide));
+    this.back = new THREE.Mesh(this.geo, mat(TOK.colour, THREE.BackSide)); // both sides orange
     for (const m of [this.front, this.back]) { m.castShadow = true; m.receiveShadow = false; m.frustumCulled = false; scene.add(m); }
 
     // ink lines on the paper

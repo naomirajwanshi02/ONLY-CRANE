@@ -208,9 +208,10 @@ function occluded(occ, selfId, cam, M) {
       const e1 = G.sub(v1, v0), e2 = G.sub(v2, v0), pv = G.cross(dir, e2), det = G.dot(e1, pv);
       if (Math.abs(det) < 1e-12) continue;
       const tv = G.sub(cam, v0), uu = G.dot(tv, pv) / det;
-      if (uu < 1e-4 || uu > 1 - 1e-4) continue;
+      // inclusive: a line seen exactly through the seam between two pieces is still covered
+      if (uu < -1e-4 || uu > 1 + 1e-4) continue;
       const qv = G.cross(tv, e1), vv = G.dot(dir, qv) / det;
-      if (vv < 1e-4 || uu + vv > 1 - 1e-4) continue;
+      if (vv < -1e-4 || uu + vv > 1 + 1e-4) continue;
       const t = G.dot(e2, qv) / det;
       if (t > 0 && t < tmax) return true;
     }
@@ -222,7 +223,52 @@ function edges(fr, geo, camPos) {
   const byId = new Map(geo.map((g) => [g.id, g]));
   const dark = [], faint = [];
   const occ = occluders(geo);
+  // raw paper edges that butt against another raw edge in the same layer are not drawn
+  const flatOf = (g) => !g.bent && Math.abs(Math.abs(g.normal[2]) - 1) < 1e-6;
+  const rawSegs = [];
   for (const g of geo) {
+    if (!flatOf(g)) continue;
+    for (const [a, b, t0, t1, nb] of adj.get(g.id)) {
+      if (nb >= 0) continue;
+      const A = g.map([a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0]);
+      const B = g.map([a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1]);
+      rawSegs.push({ id: g.id, A, B });
+    }
+  }
+  const abuts = (id, M) => {
+    for (const r of rawSegs) {
+      if (r.id === id) continue;
+      const dx = r.B[0] - r.A[0], dy = r.B[1] - r.A[1], L2 = dx * dx + dy * dy;
+      if (L2 < 1e-12) continue;
+      const t = ((M[0] - r.A[0]) * dx + (M[1] - r.A[1]) * dy) / L2;
+      if (t < -1e-6 || t > 1 + 1e-6) continue;
+      const px = r.A[0] + dx * t, py = r.A[1] + dy * t, pz = r.A[2] + (r.B[2] - r.A[2]) * t;
+      if (Math.hypot(px - M[0], py - M[1]) < 1e-5 && Math.abs(pz - M[2]) < TH * 0.6) return true;
+    }
+    return false;
+  };
+  // flat paper higher in the stack hides lines under it, including lines right under its edge
+  const flats = geo.filter(flatOf).map((g) => {
+    let poly = g.verts.map((v) => [v[0], v[1]]);
+    if (G.area(poly) < 0) poly = poly.slice().reverse();
+    return { id: g.id, L: g.p.L, poly, bb: G.bbox(poly) };
+  });
+  const underStack = (g, M) => {
+    for (const c of flats) {
+      if (c.id === g.id || c.L <= g.p.L) continue;
+      if (M[0] < c.bb[0] - 1e-6 || M[0] > c.bb[2] + 1e-6 || M[1] < c.bb[1] - 1e-6 || M[1] > c.bb[3] + 1e-6) continue;
+      let inside = true;
+      for (let i = 0; i < c.poly.length && inside; i++) {
+        const a = c.poly[i], b = c.poly[(i + 1) % c.poly.length];
+        const ex = b[0] - a[0], ey = b[1] - a[1];
+        if ((ex * (M[1] - a[1]) - ey * (M[0] - a[0])) / Math.hypot(ex, ey) < -1e-6) inside = false;
+      }
+      if (inside) return true;
+    }
+    return false;
+  };
+  for (const g of geo) {
+    const flatG = flatOf(g);
     const c = g.verts[0];
     const toCam = G.sub(camPos, c);
     const s = G.dot(g.normal, toCam) >= 0 ? 1 : -1;
@@ -246,6 +292,8 @@ function edges(fr, geo, camPos) {
       const nseg = Math.max(1, Math.ceil(G.len(G.sub(B, A)) / 0.06));
       for (let q = 0; q < nseg; q++) {
         const a0 = G.lerp3(A, B, q / nseg), a1 = G.lerp3(A, B, (q + 1) / nseg);
+        if (nb < 0 && flatG && abuts(g.id, G.sub(G.lerp3(a0, a1, 0.5), lift))) continue;
+        if (flatG && underStack(g, G.lerp3(a0, a1, 0.5))) continue;
         if (occluded(occ, g.id, camPos, G.lerp3(a0, a1, 0.5))) continue;
         arr.push(...a0, ...a1);
       }

@@ -35,10 +35,10 @@ Then commit and push. GitHub Pages serves the new files at the same links within
 
 Turn on Pages: repo Settings → Pages → Deploy from a branch → `main` / root. The links never change:
 
-- Player: `https://naomirajwanshi02.github.io/paper-crane/`
-- Video for the AR app: `https://naomirajwanshi02.github.io/paper-crane/media/paper-crane-720.mp4`
+- Player: `https://naomirajwanshi02.github.io/ONLY-CRANE/`
+- Video for the AR app: `https://naomirajwanshi02.github.io/ONLY-CRANE/media/paper-crane-720.mp4`
   (or `media/paper-crane.mp4` for full size)
-- Manifest: `https://naomirajwanshi02.github.io/paper-crane/media/media.json`
+- Manifest: `https://naomirajwanshi02.github.io/ONLY-CRANE/media/media.json`
 
 In the AR app, fetch `media.json` first (with `cache: 'no-store'`) and load `files.mobile.path + '?v=' + version`.
 That way phones always pick up a newly published video instead of a cached old one. The video has no audio, so it can

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paper Crane</title>
+<style>
+  :root { --page: #ecdfc6; --ink: #2b1e13; --muted: #8f7a5e;
+    --sans: ui-sans-serif, system-ui, "Segoe UI", Inter, sans-serif; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  html, body { margin: 0; height: 100%; background: var(--page); color: var(--ink); font-family: var(--sans); }
+  main { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; box-sizing: border-box; }
+  video { width: min(100%, calc((100vh - 80px) * 9 / 16)); aspect-ratio: 9 / 16; background: var(--page); border-radius: 12px; box-shadow: 0 8px 30px rgba(43,30,19,.18); }
+  p { margin: 0; font: 400 13px/1.4 var(--mono); color: var(--muted); letter-spacing: .04em; }
+</style>
+</head>
+<body>
+<main>
+  <video id="v" controls playsinline muted loop preload="metadata" poster="media/poster.jpg"></video>
+  <p id="info">Paper crane folding guide</p>
+</main>
+<script>
+// Always plays the newest published video: media.json carries a version that busts phone caches.
+(async () => {
+  const v = document.getElementById('v');
+  const small = Math.min(screen.width, screen.height) < 900;
+  try {
+    const m = await (await fetch('media/media.json', { cache: 'no-store' })).json();
+    const f = small ? m.files.mobile : m.files.full;
+    v.src = f.path + '?v=' + m.version;
+    v.poster = m.files.poster.path + '?v=' + m.version;
+    document.getElementById('info').textContent = 'Version ' + m.version + ' · ' + m.updated.slice(0, 10);
+  } catch (e) {
+    v.src = 'media/paper-crane.mp4';
+  }
+})();
+</script>
+</body>
+</html>

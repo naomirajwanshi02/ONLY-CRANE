@@ -7,7 +7,10 @@ Hand this file to Claude in a new session and say "continue the paper crane vide
 
 | Path | What it is |
 |---|---|
-| `crane-video/paper-crane.mp4` | **The finished video.** 1080 × 1920, 30 fps, 1 min 51 s, no sound. |
+| `media/paper-crane.mp4` | **The published video.** 1080 × 1920, 30 fps, 1 min 51 s, no sound. |
+| `media/paper-crane-720.mp4` | The same video at 720 × 1280 (about 3.7 MB), lighter for phones and the AR app. |
+| `media/poster.jpg`, `media/media.json` | The poster frame, and a manifest with a `version` number that goes up on every publish. |
+| `index.html` | GitHub Pages player. It always loads the newest video (it reads `media.json` and adds `?v=<version>`). |
 | `crane-video/crane.html` | The same guide as a live page. Open it in Chrome straight from disk; it needs no internet. Click or press Space to pause, use ← and → to jump between steps, and add `?t=40` to the address to open the page paused at 40 s. |
 | `crane-video/README.md` | How the code works: the fold engine, the renderer and the build. |
 | `crane-video/src/` | The source. `sequence.js` holds the 24 steps (captions, timings, folds), `engine.js` the paper fold engine, `render.js` the three.js look, `main.js` the timeline, lines, camera and captions, and `page.html` the page layout. |
@@ -23,7 +26,23 @@ npm install
 node build.mjs                          # rebuilds crane.html from src/
 node shots.mjs out steps                # one check frame per step into out/
 node capture.mjs paper-crane.mp4 30 4   # renders every frame and encodes the MP4 (about 15 min)
+node publish.mjs                        # copies it to ../media, makes the 720p copy and poster, bumps media.json
 ```
+
+Then commit and push. GitHub Pages serves the new files at the same links within a minute or two.
+
+## Hosting (GitHub Pages) and the AR app
+
+Turn on Pages: repo Settings → Pages → Deploy from a branch → `main` / root. The links never change:
+
+- Player: `https://naomirajwanshi02.github.io/paper-crane/`
+- Video for the AR app: `https://naomirajwanshi02.github.io/paper-crane/media/paper-crane-720.mp4`
+  (or `media/paper-crane.mp4` for full size)
+- Manifest: `https://naomirajwanshi02.github.io/paper-crane/media/media.json`
+
+In the AR app, fetch `media.json` first (with `cache: 'no-store'`) and load `files.mobile.path + '?v=' + version`.
+That way phones always pick up a newly published video instead of a cached old one. The video has no audio, so it can
+autoplay muted with `playsinline`.
 
 The scripts need Node 18+, Chromium through Playwright (`npm i -D playwright` then `npx playwright install chromium`
 if it is not already installed) and ffmpeg.

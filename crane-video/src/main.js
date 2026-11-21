@@ -115,13 +115,16 @@ function opFrame(b, u, w) {
   const poses = op.pose(u);
   const vm = op.vmap ? op.vmap(u) : null;
   const off = new Map();
-  const k = op.kind === 'finale' ? 1 - 0.6 * G.ease(G.win(u, 0, 0.6)) : 1;
+  // the finished crane is pressed thin: layers close up to a sliver of their folding thickness
+  const k = op.kind === 'finale' ? 1 - 0.88 * G.ease(G.win(u, 0, 0.5)) : 1;
+  const standR = op.globalR ? op.globalR(u) : null;
   op.work.forEach((p, i) => {
     const hp = I.hp.get(p.id) || 0, hq = I.hq.get(p.id) ?? hp;
     if (vm && vm.has(p.id)) {
       off.set(p.id, [0, 0, G.lerp(hp, hq, w) * TH]);
     } else if (op.kind === 'finale') {
-      off.set(p.id, G.mv(G.mmul(poses[i].R, G.mT(I.flat.get(p.id).R)), [0, 0, hp * k * TH]));
+      // spacing turns with the whole crane only, not with a wing, so each wing stays on its hinge
+      off.set(p.id, G.mv(standR, [0, 0, hp * k * TH]));
     } else if (op.moving.has(p.id)) {
       const Rm = G.mmul(poses[i].R, G.mT(I.flat.get(p.id).R));
       const rel = (hp - I.hB) * TH;
@@ -247,21 +250,35 @@ function edges(fr, geo, camPos) {
     }
     return false;
   };
-  // flat paper higher in the stack hides lines under it, including lines right under its edge
-  const flats = geo.filter(flatOf).map((g) => {
-    let poly = g.verts.map((v) => [v[0], v[1]]);
-    if (G.area(poly) < 0) poly = poly.slice().reverse();
-    return { id: g.id, L: g.p.L, poly, bb: G.bbox(poly) };
+  // paper higher in the stack hides lines under it, including lines right under its edge. Works for
+  // stacked paper at any angle (on the table or standing up), comparing pieces in their shared plane.
+  const planeOf = (g) => {
+    const n = g.normal;
+    let e1 = Math.abs(n[2]) < 0.9 ? G.norm(G.cross([0, 0, 1], n)) : G.norm(G.cross([1, 0, 0], n));
+    const e2 = G.cross(n, e1);
+    return { n, e1, e2 };
+  };
+  const planar = geo.filter((g) => !g.bent).map((g) => {
+    const pl = planeOf(g);
+    return { g, id: g.id, L: g.p.L, n: pl.n, d: G.dot(pl.n, g.verts[0]) };
   });
   const underStack = (g, M) => {
-    for (const c of flats) {
+    const n = g.normal;
+    for (const c of planar) {
       if (c.id === g.id || c.L <= g.p.L) continue;
-      if (M[0] < c.bb[0] - 1e-6 || M[0] > c.bb[2] + 1e-6 || M[1] < c.bb[1] - 1e-6 || M[1] > c.bb[3] + 1e-6) continue;
+      const dn = G.dot(c.n, n);
+      if (Math.abs(dn) < 0.9999) continue;
+      if (Math.abs(G.dot(c.n, M) - c.d) > 0.03) continue;
+      // containment in the shared plane
+      const pl = planeOf(c.g);
+      let poly = c.g.verts.map((v) => [G.dot(v, pl.e1), G.dot(v, pl.e2)]);
+      if (G.area(poly) < 0) poly = poly.slice().reverse();
+      const m = [G.dot(M, pl.e1), G.dot(M, pl.e2)];
       let inside = true;
-      for (let i = 0; i < c.poly.length && inside; i++) {
-        const a = c.poly[i], b = c.poly[(i + 1) % c.poly.length];
+      for (let i = 0; i < poly.length && inside; i++) {
+        const a = poly[i], b = poly[(i + 1) % poly.length];
         const ex = b[0] - a[0], ey = b[1] - a[1];
-        if ((ex * (M[1] - a[1]) - ey * (M[0] - a[0])) / Math.hypot(ex, ey) < -1e-6) inside = false;
+        if ((ex * (m[1] - a[1]) - ey * (m[0] - a[0])) / Math.hypot(ex, ey) < -1e-6) inside = false;
       }
       if (inside) return true;
     }
@@ -293,7 +310,7 @@ function edges(fr, geo, camPos) {
       for (let q = 0; q < nseg; q++) {
         const a0 = G.lerp3(A, B, q / nseg), a1 = G.lerp3(A, B, (q + 1) / nseg);
         if (nb < 0 && flatG && abuts(g.id, G.sub(G.lerp3(a0, a1, 0.5), lift))) continue;
-        if (flatG && underStack(g, G.lerp3(a0, a1, 0.5))) continue;
+        if (!g.bent && underStack(g, G.sub(G.lerp3(a0, a1, 0.5), lift))) continue;
         if (occluded(occ, g.id, camPos, G.lerp3(a0, a1, 0.5))) continue;
         arr.push(...a0, ...a1);
       }

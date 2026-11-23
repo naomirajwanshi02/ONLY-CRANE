@@ -5,10 +5,10 @@ import { buildSequence } from './sequence.js';
 import { Renderer, TOK } from './render.js';
 
 const W = 1080, H = 1920;
-const TH = 0.003; // paper thickness per layer (world units; the square base is 1 tall)
+const TH = 0.0008; // paper thickness per layer (world units; the square base is 1 tall)
 const STAGE = { cy: 925, w: 880, h: 700 }; // stage box in px
 const FOV = 24;
-const LIFT = 0.0016; // ink lines sit just above the paper surface
+const LIFT = 0.0004; // ink lines sit just above the paper surface
 
 const beats = buildSequence();
 let T = 0;
@@ -201,7 +201,7 @@ function occluders(geo) {
 function occluded(occ, selfId, cam, M) {
   const d = G.sub(M, cam), L = G.len(d);
   const dir = G.scale(d, 1 / L);
-  const tmax = L - 0.0009;
+  const tmax = L - 0.00025;
   for (const o of occ) {
     if (o.id === selfId) continue;
     const oc = G.sub(o.c, cam), along = G.dot(oc, dir);
@@ -221,6 +221,9 @@ function occluded(occ, selfId, cam, M) {
   }
   return false;
 }
+let curStep = '';
+let collapseStep = false; // steps 4-5: open creases stay light grey whatever the angle
+let buttDraw = false; // fold-to-centre steps: where two raw edges meet it is still paper edge, so it is drawn
 function edges(fr, geo, camPos) {
   const adj = adjacency(fr.pieces);
   const byId = new Map(geo.map((g) => [g.id, g]));
@@ -278,7 +281,7 @@ function edges(fr, geo, camPos) {
       for (let i = 0; i < poly.length && inside; i++) {
         const a = poly[i], b = poly[(i + 1) % poly.length];
         const ex = b[0] - a[0], ey = b[1] - a[1];
-        if ((ex * (m[1] - a[1]) - ey * (m[0] - a[0])) / Math.hypot(ex, ey) < -1e-6) inside = false;
+        if ((ex * (m[1] - a[1]) - ey * (m[0] - a[0])) / Math.hypot(ex, ey) < (Math.abs(g.normal[2]) < 0.999 ? 0.002 : -1e-6)) inside = false; // on a lifted flap, a line on the very edge of a higher layer keeps its outline
       }
       if (inside) return true;
     }
@@ -297,11 +300,21 @@ function edges(fr, geo, camPos) {
       let isCrease = false;
       if (nb >= 0) {
         const n = byId.get(nb);
-        const same = n && (n.bent || g.bent ? G.dot(n.normal, g.normal) > 0.996 : samePose(n.P, g.P));
-        if (same) {
-          isCrease = true;
-          if (nb < g.id) continue; // draw once
-          if (E.isSilent(g.p, [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2])) continue;
+        if (n) {
+          const dn = G.dot(n.normal, g.normal);
+          const mc = [(pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2, 0];
+          const same = n.bent || g.bent ? dn > 0.996 : samePose(n.P, g.P);
+          if (same) {
+            isCrease = true;
+            if (nb < g.id) continue; // draw once
+            if (E.isSilent(g.p, [mc[0], mc[1]])) continue;
+          } else if ((dn > 0.7 || collapseStep) && dn > -0.95 && G.len(G.sub(n.map(mc), g.map(mc))) < 0.03) {
+            // a hinge that is barely open (under about 45 degrees): still a crease, drawn once in light grey.
+            // Once the flap is lifted further, or where the edge has come apart from its neighbour,
+            // it is the outer edge of a paper layer and keeps the ink outline.
+            isCrease = true;
+            if (nb < g.id) continue;
+          }
         }
       }
       // short pieces keep the line depth exact along long creases under perspective
@@ -309,9 +322,11 @@ function edges(fr, geo, camPos) {
       const nseg = Math.max(1, Math.ceil(G.len(G.sub(B, A)) / 0.06));
       for (let q = 0; q < nseg; q++) {
         const a0 = G.lerp3(A, B, q / nseg), a1 = G.lerp3(A, B, (q + 1) / nseg);
-        if (nb < 0 && flatG && abuts(g.id, G.sub(G.lerp3(a0, a1, 0.5), lift))) continue;
+        if (nb < 0 && flatG && !buttDraw && abuts(g.id, G.sub(G.lerp3(a0, a1, 0.5), lift))) continue;
         if (!g.bent && underStack(g, G.sub(G.lerp3(a0, a1, 0.5), lift))) continue;
         if (occluded(occ, g.id, camPos, G.lerp3(a0, a1, 0.5))) continue;
+        // steps 11-12: no solid line across the pressed-flat kite (the folded top edge of the petal flap)
+        if (!isCrease && nb >= 0 && (curStep === 'Step 11' || curStep === 'Step 12') && Math.abs(a0[1] + 0.293) < 0.004 && Math.abs(a1[1] + 0.293) < 0.004 && Math.abs(a0[2] - a1[2]) < 0.002) continue;
         arr.push(...a0, ...a1);
       }
     }
@@ -627,11 +642,19 @@ function renderAt(t) {
   const cam = camAt(t);
   R.setCamera(cam.pos, cam.look);
   R.setPaper(geo);
+  curStep = locate(t).b.step;
+  collapseStep = curStep === 'Step 4' || curStep === 'Step 5';
+  buttDraw = ['Step 7', 'Step 8', 'Step 12', 'Step 14'].includes(curStep);
   const { dark, faint } = edges(fr, geo, cam.pos);
   R.setLines(dark, faint);
   let zmin = Infinity, cx = 0, cy = 0, n = 0;
   for (const g of geo) for (const v of g.verts) { zmin = Math.min(zmin, v[2]); cx += v[0]; cy += v[1]; n++; }
   R.setFloor(zmin - 0.002, 0, 0);
+  {
+    // no table shadow while folding; it fades in only under the finished crane
+    const { b: sb, lt: sl } = locate(t);
+    R.setShadow(sb.op.kind === 'finale' ? G.smooth(G.win(sl / (sb.lead + sb.dur), 0.25, 0.9)) : 0);
+  }
   R.setAnnotations(annotationsAt(t, cam.pos));
   captionsAt(t);
   R.render();

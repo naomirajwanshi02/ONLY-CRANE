@@ -15,6 +15,7 @@ export const TOK = {
   ring: '#c2402f',
   colour: '#d47a44',
   white: '#f1e2c4',
+  crease: '#d3cfc8', // creases are light grey; only paper outlines are ink
 };
 
 function fibreCanvas(size, seed) {
@@ -112,7 +113,7 @@ export class Renderer {
       return m;
     };
     this.darkMat = lm(TOK.ink, 2.4, 1);
-    this.faintMat = lm(TOK.muted, 1.5, 0.75);
+    this.faintMat = lm(TOK.crease, 1.7, 0.95);
     this.dark = new LineSegments2(new LineSegmentsGeometry(), this.darkMat);
     this.faint = new LineSegments2(new LineSegmentsGeometry(), this.faintMat);
     for (const l of [this.dark, this.faint]) { l.frustumCulled = false; scene.add(l); }
@@ -186,6 +187,11 @@ export class Renderer {
     this.cam.position.set(...pos);
     this.cam.lookAt(...target);
     this.cam.updateMatrixWorld();
+  }
+  // floor shadow strength 0..1 (the table shadow only appears under the finished crane)
+  setShadow(k) {
+    this.floor.material.opacity = 0.15 * k;
+    this.floor.visible = k > 0.001;
   }
   setFloor(z, cx, cy) {
     this.floor.position.set(cx, cy, z);

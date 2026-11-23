@@ -64,6 +64,9 @@ rep('||(window.__s13&&window.__hk.has', '||(window.__h16&&!onHL(HLv,D,W))||(wind
 rep('window.__s13=window.__stp==="Step 13";', 'window.__s13=window.__stp==="Step 13";window.__h16=window.__stp==="Step 16"&&n>69.85&&n<70.5;')
 
 # 15. step 22: the wing fold line sits higher on the body
-rep('wingY:.004,', 'wingY:-.045,')
+rep('wingY:.004,', 'wingY:.06,')
+
+# 16. step 24 annotations: no tiny ring/arrowhead flicker while the previous caption is still fading out
+rep('if(!e.anns.length||s==="hold")return o;', 'if(!e.anns.length||s==="hold"||(s==="lead"&&e.step==="Step 24"&&i<.5))return o;')
 open(dst, 'w').write(s)
 print('ok')

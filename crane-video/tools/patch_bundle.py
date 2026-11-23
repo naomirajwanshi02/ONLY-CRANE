@@ -64,7 +64,7 @@ rep('||(window.__s13&&window.__hk.has', '||(window.__h16&&!onHL(HLv,D,W))||(wind
 rep('window.__s13=window.__stp==="Step 13";', 'window.__s13=window.__stp==="Step 13";window.__h16=window.__stp==="Step 16"&&n>69.85&&n<70.5;')
 
 # 15. step 22: the wing fold line sits higher on the body
-rep('wingY:.004,', 'wingY:.06,')
+rep('wingY:.004,', 'wingY:0,')
 
 # 16. step 24 annotations: no tiny ring/arrowhead flicker while the previous caption is still fading out
 rep('if(!e.anns.length||s==="hold")return o;', 'if(!e.anns.length||s==="hold"||(s==="lead"&&e.step==="Step 24"&&i<.5))return o;')
@@ -101,5 +101,22 @@ rep('||(window.__hg&&P===o&&', '||(window.__stp==="Step 9"&&P!==o&&Math.abs(D[0]
 # 21. round 10: no grey horizontal crease at start of step 12 (until black fold edge)
 rep('window.__hz=!1;', 'window.__hz=(sc(n).b.step==="Step 12"||(sc(n).b.step==="Step 11"&&n>45.6))&&n<50.3;')
 rep('||(window.__s10&&!K&&Y<0&&', '||(window.__s10&&!FV&&!K&&Y<0&&')
+
+# 22. round 10b: step 12 colours
+rep('&&n<50.3;window.__hg=sc(n).b.step==="Step 12"&&n>48.7&&n<50.35;window.__hb=sc(n).b.step==="Step 12"&&n>50.3;',
+    '&&n<48.9;window.__hg=!1;window.__hb=!1;window.__g1=sc(n).b.step==="Step 12"&&n>=48.9&&n<61.5;window.__g2=sc(n).b.step==="Step 12"&&((n>=48.9&&n<50.3)||(n>=57.4&&n<59.3));window.__g3=sc(n).b.step==="Step 12"&&n>=57.4&&n<59.3;')
+rep('let P=K?o:r,O=Math.max(1,Math.ceil(', 'if(Y>=0&&((window.__g1&&Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)||(window.__g2&&FV)||(window.__g3&&!FV)))K=!0;let P=K?o:r,O=Math.max(1,Math.ceil(')
+
+# 23. round 10c: steps 14/16 wrong-lines suppression, step 16 colours
+rep('window.__fv=["Step 10","Step 11","Step 12"].includes(window.__stp);', 'window.__fv=["Step 10","Step 11","Step 12"].includes(window.__stp)||(window.__stp==="Step 16"&&n>=69.5&&n<72.0);')
+rep('window.__s1314=window.__stp==="Step 13"||', 'window.__g4=window.__stp==="Step 16"&&n>=69.5&&n<72.0;window.__kw=(window.__stp==="Step 14"&&n>=64.6&&n<67.2)?14:(window.__stp==="Step 16"&&n>=72.6&&n<74.2)?16:0;if(window.__kw&&!(window.__kcs||(window.__kcs={}))[window.__kw]){let tt=window.__kw===14?67.4:74.4,sv=window.__kw;window.__kw=0;window.__rc=new Set;let t3=Dh(tt),e3=Nh(t3),i3=R0(tt);w0(t3,e3,i3.pos);window.__kcs[sv]=window.__rc;window.__rc=null;window.__kw=sv}window.__s1314=window.__stp==="Step 13"||')
+rep('if(Y>=0&&((window.__g1&&', 'if(Y>=0&&((window.__g4&&Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)||(window.__g1&&')
+rep('||(window.__s13&&window.__hk.has(g.id+"|"+EI))||', '||(window.__kw&&!FV&&window.__kcs[window.__kw]&&!window.__kcs[window.__kw].has(KY))||(window.__s13&&window.__hk.has(g.id+"|"+EI))||')
+rep('||P.push(...Z,...X)', '||(window.__rc&&window.__rc.add(KY),P.push(...Z,...X))')
+rep('n>69.85&&n<70.5;', 'n>69.85&&n<70.15;')
+rep('n>69.85&&n<70.15;', 'n>69.85&&n<71.3;')
+rep('(window.__h16&&!onHL(HLv,D,W))', '(window.__h16&&!(window.__h16x&&(FV||(Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)))&&!onHL(HLv,D,W))')
+rep('window.__g4=', 'window.__h16x=n>70.1;window.__g4=')
+rep('||(window.__kw&&!FV&&window.__kcs', '||(window.__kw&&Y>=0&&!FV&&window.__kcs')
 open(dst, 'w').write(s)
 print('ok')

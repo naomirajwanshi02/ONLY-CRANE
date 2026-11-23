@@ -92,5 +92,14 @@ rep('window.__nd=n>39.3&&n<45.25;', 'window.__nd=!1;')
 rep('window.__h10&&Y>=0&&!FV&&D[1]>-.28&&W[1]>-.28&&!onHL(HLv,D,W)', 'window.__h10&&Y>=0&&!FV&&D[1]>-.3&&W[1]>-.3&&Math.abs(D[1]-W[1])>.004&&!onHL(HLv,D,W)')
 rep('window.__hg=sc(n).b.step==="Step 12"&&n>48.7&&n<51.35;window.__hb=sc(n).b.step==="Step 12"&&n>51.3;', 'window.__hg=sc(n).b.step==="Step 12"&&n>48.7&&n<50.35;window.__hb=sc(n).b.step==="Step 12"&&n>50.3;')
 rep('l=s==="lead"?1:1-Ke((r-.75)/.25)', 'l=s==="lead"?1:1-Ke((r-(e.step==="Step 10"?.6:.75))/(e.step==="Step 10"?.2:.25))')
+
+# 20. round 9: no solid vertical line in step 9
+rep('"Step 7","Step 8","Step 9","Step 10","Step 11","Step 12","Step 14"].includes', '"Step 7","Step 8","Step 10","Step 11","Step 12","Step 14"].includes')
+rep('window.__fv=["Step 9","Step 10","Step 11","Step 12"].includes', 'window.__fv=["Step 10","Step 11","Step 12"].includes')
+rep('||(window.__hg&&P===o&&', '||(window.__stp==="Step 9"&&P!==o&&Math.abs(D[0])<.004&&Math.abs(W[0])<.004)||(window.__hg&&P===o&&')
+
+# 21. round 10: no grey horizontal crease at start of step 12 (until black fold edge)
+rep('window.__hz=!1;', 'window.__hz=(sc(n).b.step==="Step 12"||(sc(n).b.step==="Step 11"&&n>45.6))&&n<50.3;')
+rep('||(window.__s10&&!K&&Y<0&&', '||(window.__s10&&!FV&&!K&&Y<0&&')
 open(dst, 'w').write(s)
 print('ok')

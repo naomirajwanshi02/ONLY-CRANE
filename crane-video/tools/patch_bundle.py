@@ -64,7 +64,7 @@ rep('||(window.__s13&&window.__hk.has', '||(window.__h16&&!onHL(HLv,D,W))||(wind
 rep('window.__s13=window.__stp==="Step 13";', 'window.__s13=window.__stp==="Step 13";window.__h16=window.__stp==="Step 16"&&n>69.85&&n<70.5;')
 
 # 15. step 22: the wing fold line sits higher on the body
-rep('wingY:.004,', 'wingY:0,')
+rep('wingY:.004,', 'wingY:-.1,')
 
 # 16. step 24 annotations: no tiny ring/arrowhead flicker while the previous caption is still fading out
 rep('if(!e.anns.length||s==="hold")return o;', 'if(!e.anns.length||s==="hold"||(s==="lead"&&e.step==="Step 24"&&i<.5))return o;')
@@ -118,5 +118,7 @@ rep('n>69.85&&n<70.15;', 'n>69.85&&n<71.3;')
 rep('(window.__h16&&!onHL(HLv,D,W))', '(window.__h16&&!(window.__h16x&&(FV||(Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)))&&!onHL(HLv,D,W))')
 rep('window.__g4=', 'window.__h16x=n>70.1;window.__g4=')
 rep('||(window.__kw&&!FV&&window.__kcs', '||(window.__kw&&Y>=0&&!FV&&window.__kcs')
+# 24. hide the two tiny V triangles exposed by the lower wing fold
+rep('gs.setCamera(i.pos,i.look),gs.setPaper(e);', 'if(n>94){let sm=h=>{let v=h.verts,a=[0,0,0];for(let i=1;i<v.length-1;i++){let u=[v[i][0]-v[0][0],v[i][1]-v[0][1],v[i][2]-v[0][2]],w=[v[i+1][0]-v[0][0],v[i+1][1]-v[0][1],v[i+1][2]-v[0][2]];a[0]+=u[1]*w[2]-u[2]*w[1];a[1]+=u[2]*w[0]-u[0]*w[2];a[2]+=u[0]*w[1]-u[1]*w[0]}return Math.hypot(...a)/2};e=e.filter(h=>{if(h.verts.length!==3)return!0;let A=sm(h),cx=h.verts.reduce((q,u)=>q+u[0],0)/3,cy=h.verts.reduce((q,u)=>q+u[1],0)/3;return!(A>.004&&A<.006&&Math.abs(cx)<.05&&cy<-.05&&cy>-.2)})}'+'gs.setCamera(i.pos,i.look),gs.setPaper(e);')
 open(dst, 'w').write(s)
 print('ok')

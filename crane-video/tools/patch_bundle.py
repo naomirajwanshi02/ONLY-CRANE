@@ -86,5 +86,11 @@ rep('let HLv=window.__h16?HLL(t):null', 'let HLv=(window.__h16||window.__h13)?HL
 rep('||(window.__h13&&Y>=0&&!FV&&', '||(window.__h10&&Y>=0&&!FV&&D[1]>-.28&&W[1]>-.28&&!onHL(HLv,D,W))||(window.__h13&&Y>=0&&!FV&&')
 rep('window.__h13=sc(n).b.step==="Step 12"&&n>60.85&&n<61.3;', 'window.__h13=sc(n).b.step==="Step 12"&&n>60.85&&n<61.3;window.__h10=n>44.5&&n<45.1;')
 rep('let HLv=(window.__h16||window.__h13)?HLL(t):null', 'let HLv=(window.__h16||window.__h13||window.__h10)?HLL(t):null')
+
+# 19. round 7: keep the two grey creases after step 9; step 10 dash goes once the fold is made; top-triangle V glitch hidden; black horizontal edge appears as the wings start folding
+rep('window.__nd=n>39.3&&n<45.25;', 'window.__nd=!1;')
+rep('window.__h10&&Y>=0&&!FV&&D[1]>-.28&&W[1]>-.28&&!onHL(HLv,D,W)', 'window.__h10&&Y>=0&&!FV&&D[1]>-.3&&W[1]>-.3&&Math.abs(D[1]-W[1])>.004&&!onHL(HLv,D,W)')
+rep('window.__hg=sc(n).b.step==="Step 12"&&n>48.7&&n<51.35;window.__hb=sc(n).b.step==="Step 12"&&n>51.3;', 'window.__hg=sc(n).b.step==="Step 12"&&n>48.7&&n<50.35;window.__hb=sc(n).b.step==="Step 12"&&n>50.3;')
+rep('l=s==="lead"?1:1-Ke((r-.75)/.25)', 'l=s==="lead"?1:1-Ke((r-(e.step==="Step 10"?.6:.75))/(e.step==="Step 10"?.2:.25))')
 open(dst, 'w').write(s)
 print('ok')

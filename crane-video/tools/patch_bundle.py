@@ -68,5 +68,23 @@ rep('wingY:.004,', 'wingY:.06,')
 
 # 16. step 24 annotations: no tiny ring/arrowhead flicker while the previous caption is still fading out
 rep('if(!e.anns.length||s==="hold")return o;', 'if(!e.anns.length||s==="hold"||(s==="lead"&&e.step==="Step 24"&&i<.5))return o;')
+
+# 17. silhouette creases: where one side of a fold faces the camera and the other faces away, that edge is the paper's outer edge -> black, not a grey crease
+rep('He(Ht(H.map(mc),g.map(mc)))<.03&&(K=!0,Y<g.id))continue}}', 'He(Ht(H.map(mc),g.map(mc)))<.03&&(K=!0,Y<g.id))continue}}if(K&&Y>=0){let Hh=s.get(Y);if(Hh){let vd=[e[0]-D[0],e[1]-D[1],e[2]-D[2]];if(le(Hh.normal,vd)*le(g.normal,vd)<0)K=!1}}')
+
+# 18. round 6: step 9 centre line, no step-10 diagonals, crease held through the turn, grey horizontal removed before the wings fold, black after
+rep('"Step 7","Step 8","Step 10","Step 11","Step 12","Step 14"].includes', '"Step 7","Step 8","Step 9","Step 10","Step 11","Step 12","Step 14"].includes')
+rep('window.__fv=["Step 10","Step 11","Step 12"].includes', 'window.__fv=["Step 9","Step 10","Step 11","Step 12"].includes')
+rep('window.__hz=sc(n).b.step==="Step 12"&&n>47.3&&n<49;', 'window.__hz=!1;window.__hg=sc(n).b.step==="Step 12"&&n>48.7&&n<51.35;window.__hb=sc(n).b.step==="Step 12"&&n>51.3;window.__hold=sc(n).b.step==="Step 12"&&n>47.3&&n<48.7;window.__nd=n>39.3&&n<45.25;window.__h13=sc(n).b.step==="Step 12"&&n>60.85&&n<61.3;')
+rep('window.__fvk=window.__fvc;window.__hk=window.__hkc;window.__fvc=null;window.__hkc=null;', 'window.__fvk=window.__fvc;window.__hk=window.__hkc;window.__fvc=new Set;window.__hkc=new Set;{let t4=Dh(46.9),e4=Nh(t4),i4=R0(46.9);w0(t4,e4,i4.pos)}window.__hkb=window.__hkc;window.__fvc=null;window.__hkc=null;')
+rep('||(HD&&!(window.__cu&&window.__cu.has(KY)))||P.push', '||(HD&&!FV&&!(window.__hold&&window.__hkb.has(g.id+"|"+EI))&&!(window.__cu&&window.__cu.has(KY)))||P.push')
+rep('||(window.__h16&&!onHL(HLv,D,W))||', '||(window.__hg&&P===o&&Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)||(window.__nd&&P===o&&Math.abs(Z[0]-X[0])>.15*Math.abs(Z[1]-X[1])&&Math.abs(Z[1]-X[1])>.15*Math.abs(Z[0]-X[0]))||(window.__h13&&Y>=0&&!FV&&!onHL(HLv,D,W)&&!(Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004))||(window.__h16&&!onHL(HLv,D,W))||')
+rep('(Y>=0&&!K&&(window.__stp===', '(Y>=0&&!K&&!window.__hb&&(window.__stp===')
+rep('if(le(Hh.normal,vd)*le(g.normal,vd)<0)K=!1}}', 'if(le(Hh.normal,vd)*le(g.normal,vd)<0)K=!1}}if(window.__hb&&K&&Y>=0&&Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)K=!1;')
+rep('let HLv=window.__h16?HLL(t):null', 'let HLv=(window.__h16||window.__h13)?HLL(t):null')
+
+rep('||(window.__h13&&Y>=0&&!FV&&', '||(window.__h10&&Y>=0&&!FV&&D[1]>-.28&&W[1]>-.28&&!onHL(HLv,D,W))||(window.__h13&&Y>=0&&!FV&&')
+rep('window.__h13=sc(n).b.step==="Step 12"&&n>60.85&&n<61.3;', 'window.__h13=sc(n).b.step==="Step 12"&&n>60.85&&n<61.3;window.__h10=n>44.5&&n<45.1;')
+rep('let HLv=(window.__h16||window.__h13)?HLL(t):null', 'let HLv=(window.__h16||window.__h13||window.__h10)?HLL(t):null')
 open(dst, 'w').write(s)
 print('ok')

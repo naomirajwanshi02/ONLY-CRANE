@@ -104,7 +104,7 @@ rep('||(window.__s10&&!K&&Y<0&&', '||(window.__s10&&!FV&&!K&&Y<0&&')
 
 # 22. round 10b: step 12 colours
 rep('&&n<50.3;window.__hg=sc(n).b.step==="Step 12"&&n>48.7&&n<50.35;window.__hb=sc(n).b.step==="Step 12"&&n>50.3;',
-    '&&n<48.9;window.__hg=!1;window.__hb=!1;window.__g1=sc(n).b.step==="Step 12"&&n>=48.3&&n<61.5;window.__g2=sc(n).b.step==="Step 12"&&((n>=48.3&&n<54)||(n>=55.6&&n<59.3));window.__g3=sc(n).b.step==="Step 12"&&n>=57.4&&n<59.3;')
+    '&&n<48.9;window.__hg=!1;window.__hb=!1;window.__g1=sc(n).b.step==="Step 12"&&n>=48.3&&n<61.5;window.__g2=sc(n).b.step==="Step 12"&&((n>=48.3&&n<51.7)||(n>=55.6&&n<59.3));window.__g3=sc(n).b.step==="Step 12"&&n>=57.4&&n<59.3;window.__g2b=sc(n).b.step==="Step 12"&&n>=51.7&&n<52.6;')
 rep('let P=K?o:r,O=Math.max(1,Math.ceil(', 'if(Y>=0&&((window.__g1&&Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)||(window.__g2&&FV)||(window.__g3&&!FV)))K=!0;let P=K?o:r,O=Math.max(1,Math.ceil(')
 
 # 23. round 10c: steps 14/16 wrong-lines suppression, step 16 colours
@@ -133,5 +133,9 @@ rep('if(Y>=0&&((window.__g4&&', 'if(Y>=0&&((window.__gw&&Math.abs(D[1]+.1)<.004&
 rep('||(window.__h9&&Math.abs(D[1]-W[1])<.004)||', '||(window.__h9&&Math.abs(D[1]-W[1])<.004)||(window.__h12b&&(FV||(D[1]<-.29&&W[1]<-.29&&Math.abs(D[1]-W[1])>1.2*Math.abs(D[0]-W[0])&&!onHL(HLv,D,W))))||')
 rep('window.__hg=!1;window.__hb=!1;', 'window.__hg=!1;window.__hb=!1;window.__h12b=sc(n).b.step==="Step 12"&&n>=48.3&&n<48.95;')
 rep('let HLv=(window.__h16||window.__h13||window.__h10)?HLL(t):null', 'let HLv=(window.__h16||window.__h13||window.__h10||window.__h12b)?HLL(t):null')
+rep('||(window.__g2&&FV)||(window.__g3&&!FV)', '||(window.__g2&&FV)||(window.__g2b&&FV&&D[1]>-.29&&W[1]>-.29)||(window.__g3&&!FV&&!onHL(HLv,D,W))')
+rep('(window.__h16||window.__h13||window.__h10||window.__h12b)?HLL(t)', '(window.__h16||window.__h13||window.__h10||window.__h12b||window.__g3)?HLL(t)')
+rep('function w0(n,t,e){', 'function inAny(t,p){for(let g of t){let V=g.verts,pos=0,neg=0;for(let i=0;i<V.length;i++){let a=V[i],b=V[(i+1)%V.length],c=(b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]);if(c>1e-9)pos++;else if(c<-1e-9)neg++}if(!(pos&&neg))return!0}return!1}function onOut(t,a,b){let dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1,nx=-dy/l*.01,ny=dx/l*.01,mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2;return inAny(t,[mx+nx,my+ny])!==inAny(t,[mx-nx,my-ny])}function w0(n,t,e){')
+rep('(window.__g3&&!FV&&!onHL(HLv,D,W))', '(window.__g3&&!FV&&!onOut(t,D,W))')
 open(dst, 'w').write(s)
 print('ok')

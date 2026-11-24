@@ -126,7 +126,7 @@ rep('window.__fv=["Step 10","Step 11","Step 12"].includes(window.__stp)', 'windo
 rep('Math.abs(D[1]-W[1])>.004&&!onHL(HLv,D,W))', 'Math.abs(D[1]-W[1])>.004&&Math.abs(D[1]-W[1])<1.5*Math.abs(D[0]-W[0])&&!onHL(HLv,D,W))')
 rep('||(window.__kw&&Y>=0&&!FV&&', '||(window.__h9&&Math.abs(D[1]-W[1])<.004)||(window.__kw&&Y>=0&&!FV&&')
 rep('window.__g4=', 'window.__h9=n>=39.5&&n<40.85;window.__g4=')
-rep('window.__early=parseInt(window.__stp.slice(5))<=14;', 'window.__early=parseInt(window.__stp.slice(5))<=14||[21,22,23].includes(parseInt(window.__stp.slice(5)));')
+rep('window.__early=parseInt(window.__stp.slice(5))<=14;', 'window.__early=parseInt(window.__stp.slice(5))<=14||[19,20,21,22,23].includes(parseInt(window.__stp.slice(5)));')
 rep('window.__h16=window.__stp==="Step 16"&&n>69.85&&n<71.3;', 'window.__h16=(window.__stp==="Step 16"&&n>69.62&&n<71.3)||(window.__stp==="Step 12"&&n>48.05&&n<48.3);')
 rep('window.__g4=window.__stp==="Step 16"&&n>=69.5&&n<72.0;', 'window.__g4=window.__stp==="Step 16"&&n>=69.5&&n<73.2;window.__gw=(n>=94&&n<98.5);window.__gx=n>=98.5&&n<104.5;window.__gvv=sc(n).b.step==="Step 12"&&n>=57.6&&n<60.9;window.__fin=n>=104.5;window.__gv=(window.__stp==="Step 12"&&n>=55.6&&n<56.4)||(window.__stp==="Step 9"&&n>=38.4)||(window.__stp==="Step 10"&&n<42.4);')
 rep('if(Y>=0&&((window.__g4&&', 'if(Y>=0&&((window.__gw&&Math.abs(D[1]+.1)<.004&&Math.abs(W[1]+.1)<.004)||(window.__gv&&FV)||(window.__g4&&')

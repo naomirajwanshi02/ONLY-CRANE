@@ -124,5 +124,7 @@ rep('(window.__stp==="Step 9"&&P!==o&&Math.abs(D[0])<.004&&Math.abs(W[0])<.004)'
 rep('FV=window.__fv&&Math.abs(D[0])<.004&&Math.abs(W[0])<.004', 'FV=window.__fv&&Math.abs(D[0])<.004&&Math.abs(W[0])<.004&&(window.__stp!=="Step 9"||(D[1]<-.29&&W[1]<-.29))')
 rep('window.__fv=["Step 10","Step 11","Step 12"].includes(window.__stp)', 'window.__fv=["Step 9","Step 10","Step 11","Step 12"].includes(window.__stp)')
 rep('Math.abs(D[1]-W[1])>.004&&!onHL(HLv,D,W))', 'Math.abs(D[1]-W[1])>.004&&Math.abs(D[1]-W[1])<1.5*Math.abs(D[0]-W[0])&&!onHL(HLv,D,W))')
+rep('||(window.__kw&&Y>=0&&!FV&&', '||(window.__h9&&Math.abs(D[1]-W[1])<.004)||(window.__kw&&Y>=0&&!FV&&')
+rep('window.__g4=', 'window.__h9=n>=39.5&&n<40.85;window.__g4=')
 open(dst, 'w').write(s)
 print('ok')

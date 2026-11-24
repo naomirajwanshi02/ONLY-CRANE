@@ -1,6 +1,6 @@
 {
-  "version": 23,
-  "updated": "2026-11-24T04:07:28.882Z",
+  "version": 24,
+  "updated": "2026-11-24T04:09:40.254Z",
   "duration": 111.27,
   "audio": false,
   "files": {
@@ -8,13 +8,13 @@
       "path": "media/paper-crane.mp4",
       "width": 1080,
       "height": 1920,
-      "bytes": 10453843
+      "bytes": 10444418
     },
     "mobile": {
       "path": "media/paper-crane-720.mp4",
       "width": 720,
       "height": 1280,
-      "bytes": 4403823
+      "bytes": 4403529
     },
     "poster": {
       "path": "media/poster.jpg"

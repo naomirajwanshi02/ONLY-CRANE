@@ -137,5 +137,6 @@ rep('||(window.__g2&&FV)||(window.__g3&&!FV)', '||(window.__g2&&FV)||(window.__g
 rep('(window.__h16||window.__h13||window.__h10||window.__h12b)?HLL(t)', '(window.__h16||window.__h13||window.__h10||window.__h12b||window.__g3)?HLL(t)')
 rep('function w0(n,t,e){', 'function inAny(t,p){for(let g of t){let V=g.verts,pos=0,neg=0;for(let i=0;i<V.length;i++){let a=V[i],b=V[(i+1)%V.length],c=(b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]);if(c>1e-9)pos++;else if(c<-1e-9)neg++}if(!(pos&&neg))return!0}return!1}function onOut(t,a,b){let dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1,nx=-dy/l*.01,ny=dx/l*.01,mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2;return inAny(t,[mx+nx,my+ny])!==inAny(t,[mx-nx,my-ny])}function w0(n,t,e){')
 rep('(window.__g3&&!FV&&!onHL(HLv,D,W))', '(window.__g3&&!FV&&!onOut(t,D,W))')
+rep('let{dark:s,faint:r}=w0(t,e,i.pos);', 'let __f=(window.__stp==="Step 14"&&n>=66.05&&n<66.6)||(window.__stp==="Step 16"&&n>=73.3&&n<74.3),__t=__f?Dh(window.__stp==="Step 14"?66.7:74.5):t,__e=__f?Nh(__t):e;let{dark:s,faint:r}=w0(__t,__e,i.pos);')
 open(dst, 'w').write(s)
 print('ok')

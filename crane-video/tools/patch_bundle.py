@@ -104,7 +104,7 @@ rep('||(window.__s10&&!K&&Y<0&&', '||(window.__s10&&!FV&&!K&&Y<0&&')
 
 # 22. round 10b: step 12 colours
 rep('&&n<50.3;window.__hg=sc(n).b.step==="Step 12"&&n>48.7&&n<50.35;window.__hb=sc(n).b.step==="Step 12"&&n>50.3;',
-    '&&n<48.9;window.__hg=!1;window.__hb=!1;window.__g1=sc(n).b.step==="Step 12"&&n>=48.9&&n<61.5;window.__g2=sc(n).b.step==="Step 12"&&((n>=48.9&&n<50.3)||(n>=57.4&&n<59.3));window.__g3=sc(n).b.step==="Step 12"&&n>=57.4&&n<59.3;')
+    '&&n<48.9;window.__hg=!1;window.__hb=!1;window.__g1=sc(n).b.step==="Step 12"&&n>=48.3&&n<61.5;window.__g2=sc(n).b.step==="Step 12"&&((n>=48.3&&n<50.3)||(n>=57.4&&n<59.3));window.__g3=sc(n).b.step==="Step 12"&&n>=57.4&&n<59.3;')
 rep('let P=K?o:r,O=Math.max(1,Math.ceil(', 'if(Y>=0&&((window.__g1&&Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)||(window.__g2&&FV)||(window.__g3&&!FV)))K=!0;let P=K?o:r,O=Math.max(1,Math.ceil(')
 
 # 23. round 10c: steps 14/16 wrong-lines suppression, step 16 colours
@@ -127,8 +127,11 @@ rep('Math.abs(D[1]-W[1])>.004&&!onHL(HLv,D,W))', 'Math.abs(D[1]-W[1])>.004&&Math
 rep('||(window.__kw&&Y>=0&&!FV&&', '||(window.__h9&&Math.abs(D[1]-W[1])<.004)||(window.__kw&&Y>=0&&!FV&&')
 rep('window.__g4=', 'window.__h9=n>=39.5&&n<40.85;window.__g4=')
 rep('window.__early=parseInt(window.__stp.slice(5))<=14;', 'window.__early=parseInt(window.__stp.slice(5))<=14||[21,22].includes(parseInt(window.__stp.slice(5)));')
-rep('window.__h16=window.__stp==="Step 16"&&n>69.85&&n<71.3;', 'window.__h16=(window.__stp==="Step 16"&&n>69.62&&n<71.3)||(window.__stp==="Step 12"&&n>48.05&&n<48.95);')
-rep('window.__g4=window.__stp==="Step 16"&&n>=69.5&&n<72.0;', 'window.__g4=window.__stp==="Step 16"&&n>=69.5&&n<73.2;window.__gw=n>=94;window.__gv=window.__stp==="Step 12"&&n>=55.6&&n<56.4;')
+rep('window.__h16=window.__stp==="Step 16"&&n>69.85&&n<71.3;', 'window.__h16=(window.__stp==="Step 16"&&n>69.62&&n<71.3)||(window.__stp==="Step 12"&&n>48.05&&n<48.3);')
+rep('window.__g4=window.__stp==="Step 16"&&n>=69.5&&n<72.0;', 'window.__g4=window.__stp==="Step 16"&&n>=69.5&&n<73.2;window.__gw=n>=94;window.__gv=(window.__stp==="Step 12"&&n>=55.6&&n<56.4)||(window.__stp==="Step 9"&&n>=39.5)||(window.__stp==="Step 10"&&n<42.4);')
 rep('if(Y>=0&&((window.__g4&&', 'if(Y>=0&&((window.__gw&&Math.abs(D[1]+.1)<.004&&Math.abs(W[1]+.1)<.004)||(window.__gv&&FV)||(window.__g4&&')
+rep('||(window.__h9&&Math.abs(D[1]-W[1])<.004)||', '||(window.__h9&&Math.abs(D[1]-W[1])<.004)||(window.__h12b&&(FV||(D[1]<-.29&&W[1]<-.29&&Math.abs(D[1]-W[1])>1.2*Math.abs(D[0]-W[0])&&!onHL(HLv,D,W))))||')
+rep('window.__hg=!1;window.__hb=!1;', 'window.__hg=!1;window.__hb=!1;window.__h12b=sc(n).b.step==="Step 12"&&n>=48.3&&n<48.95;')
+rep('let HLv=(window.__h16||window.__h13||window.__h10)?HLL(t):null', 'let HLv=(window.__h16||window.__h13||window.__h10||window.__h12b)?HLL(t):null')
 open(dst, 'w').write(s)
 print('ok')

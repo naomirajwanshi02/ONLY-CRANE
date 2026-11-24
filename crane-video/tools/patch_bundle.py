@@ -104,7 +104,7 @@ rep('||(window.__s10&&!K&&Y<0&&', '||(window.__s10&&!FV&&!K&&Y<0&&')
 
 # 22. round 10b: step 12 colours
 rep('&&n<50.3;window.__hg=sc(n).b.step==="Step 12"&&n>48.7&&n<50.35;window.__hb=sc(n).b.step==="Step 12"&&n>50.3;',
-    '&&n<48.9;window.__hg=!1;window.__hb=!1;window.__g1=sc(n).b.step==="Step 12"&&n>=48.3&&n<61.5;window.__g2=sc(n).b.step==="Step 12"&&((n>=48.3&&n<50.3)||(n>=57.4&&n<59.3));window.__g3=sc(n).b.step==="Step 12"&&n>=57.4&&n<59.3;')
+    '&&n<48.9;window.__hg=!1;window.__hb=!1;window.__g1=sc(n).b.step==="Step 12"&&n>=48.3&&n<61.5;window.__g2=sc(n).b.step==="Step 12"&&((n>=48.3&&n<54)||(n>=55.6&&n<59.3));window.__g3=sc(n).b.step==="Step 12"&&n>=57.4&&n<59.3;')
 rep('let P=K?o:r,O=Math.max(1,Math.ceil(', 'if(Y>=0&&((window.__g1&&Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)||(window.__g2&&FV)||(window.__g3&&!FV)))K=!0;let P=K?o:r,O=Math.max(1,Math.ceil(')
 
 # 23. round 10c: steps 14/16 wrong-lines suppression, step 16 colours

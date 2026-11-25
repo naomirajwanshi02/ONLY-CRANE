@@ -147,5 +147,7 @@ rep('if(window.__gx&&Math.abs(D[1]+.1)<.004', 'if(window.__gvv){let a0=Math.abs(
 rep('if(window.__gx&&Math.abs(D[1]+.1)<.004', 'if(window.__gh&&Y>=0&&Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)K=!0;if(window.__gx&&Math.abs(D[1]+.1)<.004')
 rep('gs.setCamera(i.pos,i.look),gs.setPaper(e);', 'gs.setCamera(i.pos,i.look),gs.setPaper((window.__stp==="Step 12"&&n>=48.15&&n<48.95)?Nh(Dh(48.95)):e);')
 rep('if(window.__gx&&Math.abs(D[1]+.1)<.004', 'if(window.__ga&&Y>=0){if(Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)K=!1;if(FV){let hi=Math.max(D[1],W[1]),lo=Math.min(D[1],W[1]);if((lo>=-.295&&hi<=.02)||(hi<=-.285&&lo>=-.62))K=!0}}if(window.__gx&&Math.abs(D[1]+.1)<.004')
+rep('if(Y>=0&&!FV){let H=s.get(Y);if(H){let dn=le(H.normal,g.normal)', 'if(Y>=0&&!FV&&!(window.__gx&&Math.abs(D[0])<.004&&Math.abs(W[0])<.004)){let H=s.get(Y);if(H){let dn=le(H.normal,g.normal)')
+rep('if(Y>=0&&!FV&&!(window.__gx&&', 'if(window.__gx&&Y>=0&&Math.abs(D[0])<.004&&Math.abs(W[0])<.004)FV=!0;if(Y>=0&&!FV&&!(window.__gx&&')
 open(dst, 'w').write(s)
 print('ok')

@@ -104,7 +104,7 @@ rep('||(window.__s10&&!K&&Y<0&&', '||(window.__s10&&!FV&&!K&&Y<0&&')
 
 # 22. round 10b: step 12 colours
 rep('&&n<50.3;window.__hg=sc(n).b.step==="Step 12"&&n>48.7&&n<50.35;window.__hb=sc(n).b.step==="Step 12"&&n>50.3;',
-    '&&n<48.9;window.__hg=!1;window.__hb=!1;window.__g1=sc(n).b.step==="Step 12"&&n>=48.3&&n<61.5;window.__g2=sc(n).b.step==="Step 12"&&((n>=48.3&&n<51.7)||(n>=55.6&&n<59.3));window.__g3=sc(n).b.step==="Step 12"&&n>=57.4&&n<59.3;window.__g2b=sc(n).b.step==="Step 12"&&n>=51.7&&n<52.6;')
+    '&&n<48.9;window.__hg=!1;window.__hb=!1;window.__g1=sc(n).b.step==="Step 12"&&n>=48.3&&n<61.5;window.__g2=sc(n).b.step==="Step 12"&&((n>=48.15&&n<51.7)||(n>=55.6&&n<59.3));window.__g3=sc(n).b.step==="Step 12"&&n>=57.4&&n<59.3;window.__g2b=sc(n).b.step==="Step 12"&&n>=51.7&&n<52.6;')
 rep('let P=K?o:r,O=Math.max(1,Math.ceil(', 'if(Y>=0&&((window.__g1&&Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)||(window.__g2&&FV)||(window.__g3&&!FV)))K=!0;let P=K?o:r,O=Math.max(1,Math.ceil(')
 
 # 23. round 10c: steps 14/16 wrong-lines suppression, step 16 colours
@@ -127,17 +127,17 @@ rep('Math.abs(D[1]-W[1])>.004&&!onHL(HLv,D,W))', 'Math.abs(D[1]-W[1])>.004&&Math
 rep('||(window.__kw&&Y>=0&&!FV&&', '||(window.__h9&&Math.abs(D[1]-W[1])<.004)||(window.__kw&&Y>=0&&!FV&&')
 rep('window.__g4=', 'window.__h9=n>=39.5&&n<40.85;window.__g4=')
 rep('window.__early=parseInt(window.__stp.slice(5))<=14;', 'window.__early=parseInt(window.__stp.slice(5))<=14||[19,20,21,22,23].includes(parseInt(window.__stp.slice(5)));')
-rep('window.__h16=window.__stp==="Step 16"&&n>69.85&&n<71.3;', 'window.__h16=(window.__stp==="Step 16"&&n>69.62&&n<71.3)||(window.__stp==="Step 12"&&n>48.05&&n<48.3);')
+rep('window.__h16=window.__stp==="Step 16"&&n>69.85&&n<71.3;', 'window.__h16=(window.__stp==="Step 16"&&n>69.62&&n<71.3)||(window.__stp==="Step 12"&&n>48.05&&n<48.1);')
 rep('window.__g4=window.__stp==="Step 16"&&n>=69.5&&n<72.0;', 'window.__g4=window.__stp==="Step 16"&&n>=69.5&&n<73.2;window.__gw=(n>=94&&n<98.5);window.__gx=n>=98.5&&n<104.5;window.__gh=n>=44.5&&n<47.55;window.__gvv=sc(n).b.step==="Step 12"&&n>=57.6&&n<60.9;window.__fin=n>=104.5;window.__gv=(window.__stp==="Step 12"&&n>=55.6&&n<56.4)||(window.__stp==="Step 9"&&n>=38.4)||(window.__stp==="Step 10"&&n<42.4);')
 rep('if(Y>=0&&((window.__g4&&', 'if(Y>=0&&((window.__gw&&Math.abs(D[1]+.1)<.004&&Math.abs(W[1]+.1)<.004)||(window.__gv&&FV)||(window.__g4&&')
 rep('||(window.__h9&&Math.abs(D[1]-W[1])<.004)||', '||(window.__h9&&Math.abs(D[1]-W[1])<.004)||(window.__h12b&&(FV||(D[1]<-.29&&W[1]<-.29&&Math.abs(D[1]-W[1])>1.2*Math.abs(D[0]-W[0])&&!onHL(HLv,D,W))))||')
-rep('window.__hg=!1;window.__hb=!1;', 'window.__hg=!1;window.__hb=!1;window.__h12b=sc(n).b.step==="Step 12"&&n>=48.3&&n<48.78;')
+rep('window.__hg=!1;window.__hb=!1;', 'window.__hg=!1;window.__hb=!1;window.__h12b=!1;')
 rep('let HLv=(window.__h16||window.__h13||window.__h10)?HLL(t):null', 'let HLv=(window.__h16||window.__h13||window.__h10||window.__h12b)?HLL(t):null')
 rep('||(window.__g2&&FV)||(window.__g3&&!FV)', '||(window.__g2&&FV)||(window.__g2b&&FV&&D[1]>-.29&&W[1]>-.29)||(window.__g3&&!FV&&!onHL(HLv,D,W))')
 rep('(window.__h16||window.__h13||window.__h10||window.__h12b)?HLL(t)', '(window.__h16||window.__h13||window.__h10||window.__h12b||window.__g3)?HLL(t)')
 rep('function w0(n,t,e){', 'function inAny(t,p){for(let g of t){let V=g.verts,pos=0,neg=0;for(let i=0;i<V.length;i++){let a=V[i],b=V[(i+1)%V.length],c=(b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]);if(c>1e-9)pos++;else if(c<-1e-9)neg++}if(!(pos&&neg))return!0}return!1}function onOut(t,a,b){let dx=b[0]-a[0],dy=b[1]-a[1],l=Math.hypot(dx,dy)||1,nx=-dy/l*.01,ny=dx/l*.01,mx=(a[0]+b[0])/2,my=(a[1]+b[1])/2;return inAny(t,[mx+nx,my+ny])!==inAny(t,[mx-nx,my-ny])}function w0(n,t,e){')
 rep('(window.__g3&&!FV&&!onHL(HLv,D,W))', '(window.__g3&&!FV&&!onOut(t,D,W))')
-rep('let{dark:s,faint:r}=w0(t,e,i.pos);', 'let __f=(window.__stp==="Step 14"&&n>=66.05&&n<66.6)||(window.__stp==="Step 16"&&n>=73.3&&n<74.3)||(window.__stp==="Step 12"&&n>=48.78&&n<48.95),__t=__f?Dh(window.__stp==="Step 14"?66.7:window.__stp==="Step 16"?74.5:48.95):t,__e=__f?Nh(__t):e;let{dark:s,faint:r}=w0(__t,__e,i.pos);')
+rep('let{dark:s,faint:r}=w0(t,e,i.pos);', 'let __f=(window.__stp==="Step 14"&&n>=66.05&&n<66.6)||(window.__stp==="Step 16"&&n>=73.3&&n<74.3)||(window.__stp==="Step 12"&&n>=48.15&&n<48.95),__t=__f?Dh(window.__stp==="Step 14"?66.7:window.__stp==="Step 16"?74.5:48.95):t,__e=__f?Nh(__t):e;let{dark:s,faint:r}=w0(__t,__e,i.pos);')
 rep('if(Y>=0&&((window.__gw&&', 'if(Y>=0&&((window.__gx&&Math.abs(D[0])<.004&&Math.abs(W[0])<.004)||(window.__gw&&')
 rep('let P=K?o:r,O=Math.max(1,Math.ceil(He(', 'if(window.__gx&&Math.abs(D[0])<.004&&Math.abs(W[0])<.004)K=!0;let P=K?o:r,O=Math.max(1,Math.ceil(He(')
 rep('if(window.__gx&&Math.abs(D[0])<.004&&Math.abs(W[0])<.004)K=!0;', 'if(window.__gx&&Math.abs(D[1]+.1)<.004&&Math.abs(W[1]+.1)<.004)K=!1;if(window.__gx&&Math.abs(D[0])<.004&&Math.abs(W[0])<.004)K=!0;')
@@ -145,5 +145,6 @@ rep('if(window.__gx&&Math.abs(D[1]+.1)<.004', 'if(window.__fin&&!K){let dd=[D[0]
 rep('function w0(n,t,e){', 'function fdep(t,c,P){let d=[P[0]-c[0],P[1]-c[1],P[2]-c[2]],L=Math.hypot(d[0],d[1],d[2]),best=1/0;for(let g of t){let n=g.normal,a=g.verts[0],den=n[0]*d[0]+n[1]*d[1]+n[2]*d[2];if(Math.abs(den)<1e-9)continue;let s=(n[0]*(a[0]-c[0])+n[1]*(a[1]-c[1])+n[2]*(a[2]-c[2]))/den;if(s<=0)continue;let X=[c[0]+s*d[0],c[1]+s*d[1],c[2]+s*d[2]],V=g.verts,pos=0,neg=0;for(let i=0;i<V.length;i++){let p=V[i],q=V[(i+1)%V.length],ex=[q[0]-p[0],q[1]-p[1],q[2]-p[2]],ax=[X[0]-p[0],X[1]-p[1],X[2]-p[2]],cr=[ex[1]*ax[2]-ex[2]*ax[1],ex[2]*ax[0]-ex[0]*ax[2],ex[0]*ax[1]-ex[1]*ax[0]],k=cr[0]*n[0]+cr[1]*n[1]+cr[2]*n[2];if(k>1e-9)pos++;else if(k<-1e-9)neg++}if(!(pos&&neg)){let dep=s*L;if(dep<best)best=dep}}return best}function w0(n,t,e){')
 rep('if(window.__gx&&Math.abs(D[1]+.1)<.004', 'if(window.__gvv){let a0=Math.abs(D[0])<.01&&Math.abs(D[1])<.01,b0=Math.abs(W[0])<.01&&Math.abs(W[1])<.01,aa=Math.abs(Math.abs(D[0])-.29)<.01&&Math.abs(D[1]+.29)<.01,bb=Math.abs(Math.abs(W[0])-.29)<.01&&Math.abs(W[1]+.29)<.01;if((a0&&bb)||(b0&&aa))K=!1}if(window.__gx&&Math.abs(D[1]+.1)<.004')
 rep('if(window.__gx&&Math.abs(D[1]+.1)<.004', 'if(window.__gh&&Y>=0&&Math.abs(D[1]+.293)<.004&&Math.abs(W[1]+.293)<.004)K=!0;if(window.__gx&&Math.abs(D[1]+.1)<.004')
+rep('gs.setCamera(i.pos,i.look),gs.setPaper(e);', 'gs.setCamera(i.pos,i.look),gs.setPaper((window.__stp==="Step 12"&&n>=48.15&&n<48.95)?Nh(Dh(48.95)):e);')
 open(dst, 'w').write(s)
 print('ok')
